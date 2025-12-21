@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ClockIcon,
@@ -10,20 +10,97 @@ import {
 import { studentAPI } from '../../services/api';
 
 const ExamPage = () => {
-    const { roomCode } = useParams();
     const navigate = useNavigate();
 
     const [quiz, setQuiz] = useState(null);
     const [student, setStudent] = useState(null);
+    const [resultId, setResultId] = useState(null);
     const [questions, setQuestions] = useState([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState({}); // { questionId: { selectedOptionId, answerText } }
     const [timeLeft, setTimeLeft] = useState(0);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
-    const [violations, setViolations] = useState(0); // eslint-disable-line no-unused-vars
     const [showWarning, setShowWarning] = useState(false);
     const [warningMessage, setWarningMessage] = useState('');
+    const [questionStartTime, setQuestionStartTime] = useState(Date.now());
+
+    const handleSubmit = useCallback(async () => {
+        if (submitting || !resultId) return;
+        setSubmitting(true);
+        try {
+            const response = await studentAPI.finishExam({
+                result_id: resultId
+            });
+
+            if (response.data.success) {
+                navigate(`/results/${resultId}`);
+            }
+        } catch (error) {
+            console.error('Error submitting exam:', error);
+            alert('Failed to submit exam. Please try again.');
+            setSubmitting(false);
+        }
+    }, [resultId, submitting, navigate]);
+
+    const handleViolation = useCallback(async (type) => {
+        if (submitting || !student || !quiz) return;
+
+        try {
+            await studentAPI.logViolation({
+                student_id: student.id,
+                quiz_id: quiz.id,
+                violation_type: type
+            });
+
+            setWarningMessage("Please stay on the exam tab! Violations are recorded.");
+            setShowWarning(true);
+
+        } catch (error) {
+            console.error('Error logging violation:', error);
+        }
+    }, [student, quiz, submitting]);
+
+    const handleAnswer = async (questionId, value, type) => {
+        const now = Date.now();
+        const timeTaken = Math.round((now - questionStartTime) / 1000);
+
+        const answerPayload = type === 'short_answer'
+            ? { answer_text: value, question_id: questionId }
+            : { selected_option_id: value, question_id: questionId };
+
+        setAnswers(prev => ({
+            ...prev,
+            [questionId]: answerPayload
+        }));
+
+        if (resultId) {
+            try {
+                let answerStr = '';
+                if (type === 'short_answer') {
+                    answerStr = value;
+                } else {
+                    answerStr = value; // Option ID
+                }
+
+                await studentAPI.submitAnswer({
+                    result_id: resultId,
+                    question_id: questionId,
+                    answer: answerStr,
+                    time_taken: timeTaken
+                });
+            } catch (e) {
+                console.error("Auto-save failed", e);
+            }
+        }
+    };
+
+    const formatTime = (seconds) => {
+        if (!seconds) return "0:00";
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    };
 
     // Load session data
     useEffect(() => {
@@ -32,46 +109,77 @@ const ExamPage = () => {
             navigate('/join');
             return;
         }
-        const { student, quiz } = JSON.parse(sessionData);
-        setStudent(student);
-        setQuiz(quiz);
+        const parsed = JSON.parse(sessionData);
+        setStudent(parsed.student);
+        setQuiz(parsed.quiz);
+    }, [navigate]);
 
-        fetchExamData(roomCode);
-    }, [navigate, roomCode]);
+    // Fetch questions and start exam
+    useEffect(() => {
+        if (!quiz || !student) return;
 
-    const fetchExamData = async (code) => {
-        try {
-            const response = await studentAPI.getQuizByRoomCode(code);
-            const quizData = response.data.data;
-            setQuiz(quizData);
-            setQuestions(quizData.questions || []);
-            setTimeLeft(quizData.time_limit * 60); // Convert minutes to seconds
-            setLoading(false);
-        } catch (error) {
-            console.error('Error fetching exam:', error);
-            // navigate('/join');
+        const initExam = async () => {
+            try {
+                // 1. Start Exam Session
+                const startRes = await studentAPI.startExam({
+                    quiz_id: quiz.id,
+                    student_db_id: student.id
+                });
+
+                if (startRes.data.success) {
+                    setResultId(startRes.data.data.result_id);
+                }
+
+                // 2. Fetch Questions
+                const qRes = await studentAPI.getExamQuestions(quiz.id);
+                if (qRes.data.success) {
+                    setQuestions(qRes.data.data);
+
+                    // 3. Synchronized Timer Calculation
+                    const totalDurationSeconds = quiz.time_limit * 60;
+
+                    if (quiz.start_time && quiz.server_time) {
+                        const startTime = new Date(quiz.start_time.replace(/-/g, '/')).getTime();
+                        const serverTimeAtCapture = new Date(quiz.server_time.replace(/-/g, '/')).getTime();
+                        const elapsedSeconds = Math.floor((serverTimeAtCapture - startTime) / 1000);
+                        const calculatedTimeLeft = totalDurationSeconds - elapsedSeconds;
+
+                        if (calculatedTimeLeft <= 0) {
+                            setTimeLeft(0);
+                            setLoading(false);
+                            handleSubmit();
+                            return;
+                        } else {
+                            setTimeLeft(calculatedTimeLeft);
+                        }
+                    } else {
+                        setTimeLeft(totalDurationSeconds);
+                    }
+                }
+
+                setLoading(false);
+
+                // 4. Update status to 'in_progress'
+                try {
+                    const resId = startRes.data.data.result_id;
+                    if (resId) {
+                        await studentAPI.updateResultStatus(resId, 'in_progress');
+                    }
+                } catch (e) {
+                    console.error("Failed to update status to in_progress", e);
+                }
+            } catch (error) {
+                console.error('Error initializing exam:', error);
+                alert('Failed to load exam. ' + (error.response?.data?.message || ''));
+            }
+        };
+
+        if (loading) {
+            initExam();
         }
-    };
+    }, [quiz, student, loading, handleSubmit]);
 
-    const handleSubmit = useCallback(async () => {
-        setSubmitting(true);
-        try {
-            const formattedAnswers = Object.values(answers);
-            const response = await studentAPI.submitExam({
-                student_id: student.id,
-                quiz_id: quiz.id,
-                answers: formattedAnswers
-            });
-
-            navigate(`/results/${response.data.data.result_id}`);
-        } catch (error) {
-            console.error('Error submitting exam:', error);
-            alert('Failed to submit exam. Please try again.');
-            setSubmitting(false);
-        }
-    }, [student, quiz, answers, navigate]);
-
-    // Timer
+    // Timer Interval
     useEffect(() => {
         if (loading || timeLeft <= 0) return;
 
@@ -89,31 +197,7 @@ const ExamPage = () => {
         return () => clearInterval(timer);
     }, [loading, timeLeft, handleSubmit]);
 
-    // Anti-Cheat: Visibility Change & Blur
-    const handleViolation = useCallback(async (type) => {
-        if (submitting) return;
-
-        try {
-            const response = await studentAPI.logViolation({
-                student_id: student.id,
-                quiz_id: quiz.id,
-                violation_type: type
-            });
-
-            const result = response.data.data;
-            setViolations(result.violation_count);
-            setWarningMessage(result.message);
-            setShowWarning(true);
-
-            if (result.action === 'kicked') {
-                alert('You have been kicked from the exam due to multiple violations.');
-                navigate('/');
-            }
-        } catch (error) {
-            console.error('Error logging violation:', error);
-        }
-    }, [student, quiz, submitting, navigate]);
-
+    // Anti-Cheat Events
     useEffect(() => {
         if (loading) return;
 
@@ -123,33 +207,11 @@ const ExamPage = () => {
             }
         };
 
-        const onBlur = () => {
-            handleViolation('minimize');
-        };
-
         document.addEventListener('visibilitychange', onVisibilityChange);
-        window.addEventListener('blur', onBlur);
-
         return () => {
             document.removeEventListener('visibilitychange', onVisibilityChange);
-            window.removeEventListener('blur', onBlur);
         };
     }, [loading, handleViolation]);
-
-    const handleAnswer = (questionId, value, type) => {
-        setAnswers(prev => ({
-            ...prev,
-            [questionId]: type === 'short_answer'
-                ? { answer_text: value, question_id: questionId }
-                : { selected_option_id: value, question_id: questionId }
-        }));
-    };
-
-    const formatTime = (seconds) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-    };
 
     if (loading) return <div className="flex justify-center items-center h-screen">Loading Exam...</div>;
 
@@ -203,98 +265,105 @@ const ExamPage = () => {
 
             {/* Question Area */}
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <motion.div
-                    key={currentQuestion.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="card min-h-[400px] flex flex-col"
-                >
-                    <div className="flex-1">
-                        <h2 className="text-xl font-medium text-gray-900 dark:text-white mb-6">
-                            {currentQuestion.question_text}
-                        </h2>
+                {currentQuestion && (
+                    <motion.div
+                        key={currentQuestion.id}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.3 }}
+                        className="card min-h-[400px] flex flex-col bg-white p-6 rounded-lg shadow"
+                    >
+                        <div className="flex-1">
+                            <h2 className="text-xl font-medium text-gray-900 dark:text-white mb-6">
+                                {currentQuestion.question_text}
+                            </h2>
 
-                        <div className="space-y-4">
-                            {/* MCQ & True/False Options */}
-                            {(currentQuestion.question_type === 'mcq' || currentQuestion.question_type === 'true_false') && (
-                                <div className="space-y-3">
-                                    {currentQuestion.options.map((option) => (
-                                        <label
-                                            key={option.id}
-                                            className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${answers[currentQuestion.id]?.selected_option_id === option.id
-                                                ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/20'
-                                                : 'border-gray-200 dark:border-gray-700 hover:border-primary-300'
-                                                }`}
-                                        >
-                                            <input
-                                                type="radio"
-                                                name={`question_${currentQuestion.id}`}
-                                                className="h-5 w-5 text-primary-600 focus:ring-primary-500 border-gray-300"
-                                                checked={answers[currentQuestion.id]?.selected_option_id === option.id}
-                                                onChange={() => handleAnswer(currentQuestion.id, option.id, currentQuestion.question_type)}
-                                            />
-                                            <span className="ml-3 text-gray-900 dark:text-white font-medium">
-                                                {option.option_text}
-                                            </span>
-                                        </label>
-                                    ))}
-                                </div>
-                            )}
+                            <div className="space-y-4">
+                                {(currentQuestion.question_type === 'multiple_choice' || currentQuestion.question_type === 'true_false' || currentQuestion.question_type === 'mcq') && (
+                                    <div className="space-y-3">
+                                        {currentQuestion.options && currentQuestion.options.map((option) => (
+                                            <label
+                                                key={option.id || option.text}
+                                                className={`flex items-center p-4 rounded-lg border-2 cursor-pointer transition-all ${answers[currentQuestion.id]?.selected_option_id === (option.id || option.text)
+                                                    ? 'border-indigo-600 bg-indigo-50'
+                                                    : 'border-gray-200 hover:border-indigo-300'
+                                                    }`}
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    name={`question_${currentQuestion.id}`}
+                                                    className="h-5 w-5 text-indigo-600 focus:ring-indigo-500 border-gray-300"
+                                                    checked={answers[currentQuestion.id]?.selected_option_id === (option.id || option.text)}
+                                                    onChange={() => handleAnswer(currentQuestion.id, (option.id || option.text), currentQuestion.question_type)}
+                                                />
+                                                <span className="ml-3 text-gray-900 dark:text-white font-medium">
+                                                    {option.option_text || option.text}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
 
-                            {/* Short Answer */}
-                            {currentQuestion.question_type === 'short_answer' && (
-                                <textarea
-                                    rows={6}
-                                    className="input text-lg"
-                                    placeholder="Type your answer here..."
-                                    value={answers[currentQuestion.id]?.answer_text || ''}
-                                    onChange={(e) => handleAnswer(currentQuestion.id, e.target.value, 'short_answer')}
-                                />
+                                {currentQuestion.question_type === 'short_answer' && (
+                                    <textarea
+                                        rows={6}
+                                        className="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-lg"
+                                        placeholder="Type your answer here..."
+                                        value={answers[currentQuestion.id]?.answer_text || ''}
+                                        onChange={(e) => handleAnswer(currentQuestion.id, e.target.value, 'short_answer')}
+                                    />
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="mt-8 flex justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
+                            <button
+                                onClick={() => {
+                                    setCurrentQuestionIndex(prev => Math.max(0, prev - 1));
+                                    setQuestionStartTime(Date.now());
+                                }}
+                                disabled={currentQuestionIndex === 0}
+                                className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                            >
+                                <ChevronLeftIcon className="h-5 w-5 inline mr-1" /> Previous
+                            </button>
+
+                            {currentQuestionIndex === questions.length - 1 ? (
+                                <button
+                                    onClick={handleSubmit}
+                                    disabled={submitting}
+                                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                >
+                                    {submitting ? 'Submitting...' : 'Submit Exam'}
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => {
+                                        setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1));
+                                        setQuestionStartTime(Date.now());
+                                    }}
+                                    className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                >
+                                    Next <ChevronRightIcon className="h-5 w-5 inline ml-1" />
+                                </button>
                             )}
                         </div>
-                    </div>
+                    </motion.div>
+                )}
 
-                    {/* Navigation */}
-                    <div className="mt-8 flex justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
-                        <button
-                            onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-                            disabled={currentQuestionIndex === 0}
-                            className="btn btn-outline disabled:opacity-50"
-                        >
-                            <ChevronLeftIcon className="h-5 w-5" /> Previous
-                        </button>
-
-                        {currentQuestionIndex === questions.length - 1 ? (
-                            <button
-                                onClick={handleSubmit}
-                                disabled={submitting}
-                                className="btn btn-primary bg-green-600 hover:bg-green-700"
-                            >
-                                {submitting ? 'Submitting...' : 'Submit Exam'}
-                            </button>
-                        ) : (
-                            <button
-                                onClick={() => setCurrentQuestionIndex(prev => Math.min(questions.length - 1, prev + 1))}
-                                className="btn btn-primary"
-                            >
-                                Next <ChevronRightIcon className="h-5 w-5" />
-                            </button>
-                        )}
-                    </div>
-                </motion.div>
-
-                {/* Question Palette */}
                 <div className="mt-8 grid grid-cols-5 sm:grid-cols-10 gap-2">
                     {questions.map((q, idx) => (
                         <button
                             key={q.id}
-                            onClick={() => setCurrentQuestionIndex(idx)}
+                            onClick={() => {
+                                setCurrentQuestionIndex(idx);
+                                setQuestionStartTime(Date.now());
+                            }}
                             className={`h-10 w-10 rounded-lg flex items-center justify-center text-sm font-medium transition-colors ${currentQuestionIndex === idx
-                                ? 'bg-primary-600 text-white'
+                                ? 'bg-indigo-600 text-white'
                                 : answers[q.id]
-                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                    : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-gray-200 text-gray-600'
                                 }`}
                         >
                             {idx + 1}

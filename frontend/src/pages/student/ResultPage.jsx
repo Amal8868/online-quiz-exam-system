@@ -60,7 +60,7 @@ const ResultPage = () => {
                             <div className="bg-gray-50 dark:bg-gray-700 overflow-hidden rounded-lg px-4 py-5 sm:p-6">
                                 <dt className="text-sm font-medium text-gray-500 dark:text-gray-300 truncate">Score</dt>
                                 <dd className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
-                                    {result.score}
+                                    {(Number(result.score) || 0).toFixed(2)} / {(Number(result.total_points) || 0).toFixed(2)}
                                 </dd>
                             </div>
 
