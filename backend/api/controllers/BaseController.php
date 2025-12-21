@@ -21,7 +21,7 @@ class BaseController {
     protected function validateRequiredFields($data, $requiredFields) {
         $missing = [];
         foreach ($requiredFields as $field) {
-            if (!isset($data[$field]) || empty($data[$field])) {
+            if (!isset($data[$field]) || ($data[$field] === '' && $data[$field] !== 0 && $data[$field] !== '0')) {
                 $missing[] = $field;
             }
         }

@@ -47,4 +47,33 @@ class ClassController extends BaseController {
             return $this->error($e->getMessage(), $e->getCode() ?: 500);
         }
     }
+    // Import students into a class
+    public function uploadStudents($teacherId, $classId, $data) {
+        try {
+            $this->validateRequiredFields($data, ['students']);
+            
+            $classModel = new ClassModel();
+            $result = $classModel->addStudentsToClass($classId, $teacherId, $data['students']);
+            
+            return $this->success($result, 'Students processed successfully');
+            
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), $e->getCode() ?: 500);
+        }
+    }
+
+    // Global Import (Extracts classes from CSV)
+    public function importGlobal($teacherId, $data) {
+        try {
+            $this->validateRequiredFields($data, ['students']);
+            
+            $classModel = new ClassModel();
+            $result = $classModel->importGlobalRoster($teacherId, $data['students']);
+            
+            return $this->success($result, 'Global import processed successfully');
+            
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), $e->getCode() ?: 500);
+        }
+    }
 }
