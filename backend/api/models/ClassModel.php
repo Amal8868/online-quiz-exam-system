@@ -21,7 +21,7 @@ class ClassModel extends Model {
     public function getTeacherClasses($teacherId) {
         $sql = "SELECT c.*, 
                 (SELECT COUNT(*) FROM students WHERE class_id = c.id) as student_count,
-                (SELECT COUNT(*) FROM quizzes WHERE class_id = c.id) as quiz_count
+                (SELECT COUNT(*) FROM quiz_classes WHERE class_id = c.id) as quiz_count
                 FROM {$this->table} c
                 WHERE c.teacher_id = ?
                 ORDER BY c.academic_year DESC, c.name, c.section";
@@ -118,6 +118,85 @@ class ClassModel extends Model {
                 'errors' => $errors
             ];
             
+        } catch (Exception $e) {
+            $this->rollBack();
+            throw $e;
+        }
+    }
+    // Global Roster Import (Detects and creates classes)
+    public function importGlobalRoster($teacherId, $studentsData) {
+        $this->beginTransaction();
+        try {
+            $classCache = []; // name|section -> id
+            $addedCount = 0;
+            $updatedCount = 0;
+            $classCreatedCount = 0;
+            $errors = [];
+
+            $studentModel = new Student();
+
+            foreach ($studentsData as $index => $row) {
+                try {
+                    $studentId = $row['student_id'] ?? '';
+                    $name = $row['name'] ?? '';
+                    $className = $row['class'] ?? 'Default Class';
+                    $section = $row['section'] ?? '';
+                    $academicYear = $row['academic_year'] ?? date('Y');
+
+                    if (empty($studentId) || empty($name)) {
+                        throw new Exception('Missing ID or Name');
+                    }
+
+                    // Handle Class detection/creation
+                    $cacheKey = $className . '|' . $section;
+                    if (!isset($classCache[$cacheKey])) {
+                        // Check DB
+                        $stmt = $this->db->prepare("SELECT id FROM classes WHERE teacher_id = ? AND name = ? AND section = ?");
+                        $stmt->execute([$teacherId, $className, $section]);
+                        $class = $stmt->fetch();
+
+                        if ($class) {
+                            $classCache[$cacheKey] = $class['id'];
+                        } else {
+                            // Create new
+                            $newClassId = $this->createClass($teacherId, $className, $section, $academicYear);
+                            $classCache[$cacheKey] = $newClassId;
+                            $classCreatedCount++;
+                        }
+                    }
+
+                    $actualClassId = $classCache[$cacheKey];
+
+                    // Check if student exists globally or in class
+                    $existing = $this->query("SELECT id FROM students WHERE student_id = ?", [$studentId])->fetch();
+
+                    if ($existing) {
+                        $studentModel->update($existing['id'], [
+                            'name' => $name,
+                            'class_id' => $actualClassId
+                        ]);
+                        $updatedCount++;
+                    } else {
+                        $studentModel->create([
+                            'student_id' => $studentId,
+                            'name' => $name,
+                            'class_id' => $actualClassId
+                        ]);
+                        $addedCount++;
+                    }
+
+                } catch (Exception $e) {
+                    $errors[] = ["row" => $index + 2, "error" => $e->getMessage()];
+                }
+            }
+
+            $this->commit();
+            return [
+                "classes_created" => $classCreatedCount,
+                "students_added" => $addedCount,
+                "students_updated" => $updatedCount,
+                "errors" => $errors
+            ];
         } catch (Exception $e) {
             $this->rollBack();
             throw $e;

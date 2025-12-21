@@ -1,0 +1,324 @@
+AddQuestion Data: Array
+(
+    [question_text] => magceygu waa Amal
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion Error: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'time_limit_seconds' in 'field list'
+AddQuestion Start: QuizID=20
+AddQuestion Data: Array
+(
+    [question_text] => magceygu waa Amal
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 20
+    [question_text] => magceygu waa Amal
+    [question_type] => true_false
+    [options] => [{"id":1,"option_text":"True","is_correct":true},{"id":2,"option_text":"False","is_correct":false}]
+    [correct_answer] => 1
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 2
+AddQuestion Start: QuizID=21
+AddQuestion Data: Array
+(
+    [question_text] => magceygu waa Amal
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 21
+    [question_text] => magceygu waa Amal
+    [question_type] => true_false
+    [options] => [{"id":1,"option_text":"True","is_correct":true},{"id":2,"option_text":"False","is_correct":false}]
+    [correct_answer] => 1
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 3
+AddQuestion Start: QuizID=22
+AddQuestion Data: Array
+(
+    [question_text] => magcygu waa Ahmed
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 22
+    [question_text] => magcygu waa Ahmed
+    [question_type] => true_false
+    [options] => [{"id":1,"option_text":"True","is_correct":true},{"id":2,"option_text":"False","is_correct":false}]
+    [correct_answer] => 1
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 4
+AddQuestion Start: QuizID=22
+AddQuestion Data: Array
+(
+    [question_text] => magcygu waa 
+    [question_type] => multiple_choice
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => Ahmed
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => Hamaada
+                    [is_correct] => 
+                )
+
+            [2] => Array
+                (
+                    [id] => 3
+                    [option_text] => Hamad
+                    [is_correct] => 
+                )
+
+            [3] => Array
+                (
+                    [id] => 4
+                    [option_text] => Haamud
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 22
+    [question_text] => magcygu waa 
+    [question_type] => multiple_choice
+    [options] => [{"id":1,"option_text":"Ahmed","is_correct":true},{"id":2,"option_text":"Hamaada","is_correct":false},{"id":3,"option_text":"Hamad","is_correct":false},{"id":4,"option_text":"Haamud","is_correct":false}]
+    [correct_answer] => 1
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 5
+AddQuestion Start: QuizID=23
+AddQuestion Data: Array
+(
+    [question_text] => hello Ahmed
+
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 23
+    [question_text] => hello Ahmed
+
+    [question_type] => true_false
+    [options] => [{"id":1,"option_text":"True","is_correct":true},{"id":2,"option_text":"False","is_correct":false}]
+    [correct_answer] => 1
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 6
+AddQuestion Start: QuizID=24
+AddQuestion Data: Array
+(
+    [question_text] => abc
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 1
+                )
+
+        )
+
+    [correct_answer] => 2
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 24
+    [question_text] => abc
+    [question_type] => true_false
+    [options] => [{"id":1,"option_text":"True","is_correct":false},{"id":2,"option_text":"False","is_correct":true}]
+    [correct_answer] => 2
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 7
+AddQuestion Start: QuizID=25
+AddQuestion Data: Array
+(
+    [question_text] => Amal
+    [question_type] => true_false
+    [points] => 1
+    [options] => Array
+        (
+            [0] => Array
+                (
+                    [id] => 1
+                    [option_text] => True
+                    [is_correct] => 1
+                )
+
+            [1] => Array
+                (
+                    [id] => 2
+                    [option_text] => False
+                    [is_correct] => 
+                )
+
+        )
+
+    [correct_answer] => 1
+)
+
+AddQuestion InsertData: Array
+(
+    [quiz_id] => 25
+    [question_text] => Amal
+    [question_type] => true_false
+    [options] => [{"id":1,"option_text":"True","is_correct":true},{"id":2,"option_text":"False","is_correct":false}]
+    [correct_answer] => 1
+    [points] => 1
+    [time_limit_seconds] => 
+)
+
+AddQuestion: Success ID 8
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7
+GetDashboard Start: TeacherID=7

@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000/backend/api'; // Updated to port 8000 for PHP built-in server
+// Adjust this to match your XAMPP setup
+const API_URL = 'http://localhost/online-quiz-exam-system/backend/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -9,7 +10,6 @@ const api = axios.create({
   },
 });
 
-// Add a request interceptor to include the JWT token
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -18,22 +18,7 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-// Add a response interceptor to handle auth errors
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401) {
-      // Redirect to login if unauthorized (optional: clear token)
-      // localStorage.removeItem('token');
-      // window.location.href = '/teacher/login';
-    }
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
 export const authAPI = {
@@ -43,24 +28,39 @@ export const authAPI = {
 
 export const teacherAPI = {
   getDashboardStats: () => api.get('/teacher/dashboard'),
-  getClasses: () => api.get('/classes'),
-  createClass: (data) => api.post('/classes', data),
   getQuizzes: () => api.get('/quizzes'),
   getQuiz: (id) => api.get(`/quizzes/${id}`),
   createQuiz: (data) => api.post('/quizzes', data),
-  deleteQuiz: (id) => api.delete(`/quizzes/${id}`),
   addQuestion: (quizId, data) => api.post(`/quizzes/${quizId}/questions`, data),
-  updateQuestion: (id, data) => api.put(`/questions/${id}`, data),
-  deleteQuestion: (id) => api.delete(`/questions/${id}`),
-  getQuizResults: (quizId) => api.get(`/quizzes/${quizId}/results`),
+  uploadRoster: (quizId, formData) => api.post(`/quizzes/${quizId}/roster`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  updateQuizStatus: (quizId, status) => api.post(`/quizzes/${quizId}/status`, { status }),
+  getWaitingStudents: (quizId) => api.get(`/quizzes/${quizId}/waiting`),
+  getLiveMonitoring: (quizId) => api.get(`/quizzes/${quizId}/monitoring`),
+  getQuizResults: (quizId) => api.get(`/quizzes/${quizId}/results`), // Added missing endpoint
+  uploadMaterial: (quizId, formData) => api.post(`/quizzes/${quizId}/material`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  // Class Management
+  getClasses: () => api.get('/classes'),
+  createClass: (data) => api.post('/classes', data),
+  getClassDetails: (id) => api.get(`/classes/${id}`),
+  uploadClassStudents: (classId, students) => api.post(`/classes/${classId}/students`, { students }),
+  globalImportStudents: (students) => api.post('/classes/import', { students }),
+  setQuizClasses: (quizId, classIds) => api.post(`/quizzes/${quizId}/classes`, { class_ids: classIds }),
 };
 
 export const studentAPI = {
-  verify: (data) => api.post('/student/verify', data),
-  getQuizByRoomCode: (code) => api.get(`/student/quiz/${code}`),
-  submitExam: (data) => api.post('/student/submit', data),
+  enterExam: (data) => api.post('/student/enter', data), // { room_code, student_id }
+  getQuizStatus: (quizId) => api.get(`/student/quiz/${quizId}/status`),
+  startExam: (data) => api.post('/student/start', data), // { quiz_id, student_db_id }
+  getExamQuestions: (quizId) => api.get(`/student/exam/${quizId}/questions`),
+  submitAnswer: (data) => api.post('/student/answer', data),
+  finishExam: (data) => api.post('/student/finish', data),
   logViolation: (data) => api.post('/student/violation', data),
-  getResult: (id) => api.get(`/student/results/${id}`),
+  getResult: (resultId) => api.get(`/student/results/${resultId}`), // Added for ResultPage
+  updateResultStatus: (resultId, status) => api.post(`/student/results/${resultId}/status`, { status }),
 };
 
 export default api;
