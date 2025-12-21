@@ -55,50 +55,15 @@ class Teacher extends Model {
         ];
     }
     
-    // Generate a unique room code for a quiz
-    public function generateRoomCode() {
-        $db = getDBConnection();
-        
-        do {
-            $roomCode = '';
-            $characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            
-            for ($i = 0; $i < 6; $i++) {
-                $roomCode .= $characters[rand(0, strlen($characters) - 1)];
-            }
-            
-            // Check if room code already exists
-            $stmt = $db->prepare("SELECT id FROM quizzes WHERE room_code = ?");
-            $stmt->execute([$roomCode]);
-            $exists = $stmt->fetch();
-            
-        } while ($exists);
-        
-        return $roomCode;
-    }
-    
-    // Get all quizzes for a teacher
+    // Get all quizzes for a teacher (updated to not use classes)
     public function getQuizzes($teacherId) {
-        $sql = "SELECT q.*, c.name as class_name, 
+        $sql = "SELECT q.*, 
                 (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
-                (SELECT COUNT(DISTINCT r.student_id) FROM results r WHERE r.quiz_id = q.id) as student_count
+                (SELECT COUNT(*) FROM quiz_allowed_students WHERE quiz_id = q.id) as allowed_students
                 FROM quizzes q
-                JOIN classes c ON q.class_id = c.id
                 WHERE q.teacher_id = ?
                 ORDER BY q.created_at DESC";
                 
         return $this->query($sql, [$teacherId])->fetchAll();
-    }
-    
-    // Get quiz results
-    public function getQuizResults($quizId, $teacherId) {
-        $sql = "SELECT r.*, s.name as student_name, s.student_id, 
-                (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 1) as correct_answers
-                FROM results r
-                JOIN students s ON r.student_id = s.id
-                JOIN quizzes q ON r.quiz_id = q.id
-                WHERE r.quiz_id = ? AND q.teacher_id = ?";
-                
-        return $this->query($sql, [$quizId, $teacherId])->fetchAll();
     }
 }

@@ -3,204 +3,189 @@ require_once __DIR__ . '/Model.php';
 
 class Result extends Model {
     protected $table = 'results';
-    protected $fillable = [
-        'student_id', 'quiz_id', 'total_questions', 'questions_answered', 
-        'correct_answers', 'score', 'time_spent', 'status', 'submitted_at'
-    ];
-    
-    // Get a student's result for a specific quiz
-    public function getStudentQuizResult($studentId, $quizId) {
-        return $this->query(
-            "SELECT * FROM {$this->table} 
-             WHERE student_id = ? AND quiz_id = ?",
-            [$studentId, $quizId]
-        )->fetch();
+    protected $fillable = ['student_id', 'quiz_id', 'score', 'total_points', 'status', 'started_at', 'submitted_at'];
+
+    public function findByStudentAndQuiz($studentId, $quizId) {
+        $stmt = $this->db->prepare("SELECT * FROM {$this->table} WHERE student_id = ? AND quiz_id = ?");
+        $stmt->execute([$studentId, $quizId]);
+        return $stmt->fetch();
     }
     
-    // Get detailed results for a specific attempt
-    public function getDetailedResult($resultId, $studentId = null) {
-        $params = [$resultId];
-        $sql = "SELECT r.*, q.title as quiz_title, q.description as quiz_description,
-                s.name as student_name, s.student_id,
-                c.name as class_name, c.section,
-                (SELECT COUNT(*) FROM questions WHERE quiz_id = r.quiz_id) as total_questions
-                FROM {$this->table} r
-                JOIN quizzes q ON r.quiz_id = q.id
-                JOIN students s ON r.student_id = s.id
-                JOIN classes c ON s.class_id = c.id
-                WHERE r.id = ?";
-        
-        if ($studentId !== null) {
-            $sql .= " AND r.student_id = ?";
-            $params[] = $studentId;
-        }
-        
-        $result = $this->query($sql, $params)->fetch();
-        
-        if (!$result) {
-            throw new Exception('Result not found', 404);
-        }
-        
-        // Get all questions with student's answers
-        $sql = "SELECT q.*, sa.answer_text, sa.selected_option_id, sa.is_correct, 
-                sa.points_earned, sa.is_manually_graded,
-                (SELECT GROUP_CONCAT(CONCAT(o.id, ':', o.option_text, ':', o.is_correct) SEPARATOR '||')
-                 FROM options o WHERE o.question_id = q.id) as options
-                FROM questions q
-                LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.result_id = ?
-                WHERE q.quiz_id = ?
-                ORDER BY q.id ASC";
-        
-        $questions = $this->query($sql, [$resultId, $result['quiz_id']])->fetchAll();
-        
-        // Process options
-        foreach ($questions as &$question) {
-            $options = [];
-            if (!empty($question['options'])) {
-                $optionPairs = explode('||', $question['options']);
-                foreach ($optionPairs as $pair) {
-                    list($id, $text, $isCorrect) = explode(':', $pair, 3);
-                    $options[] = [
-                        'id' => $id,
-                        'option_text' => $text,
-                        'is_correct' => (bool)$isCorrect,
-                        'is_selected' => ($question['selected_option_id'] == $id)
-                    ];
+    public function saveAnswer($resultId, $questionId, $answer, $timeTaken = 0) {
+        try {
+            // 1. Get correct answer for instant grading
+            $stmt = $this->db->prepare("SELECT correct_answer, question_type, points FROM questions WHERE id = ?");
+            $stmt->execute([$questionId]);
+            $question = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$question) return false;
+            
+            $isCorrect = 0;
+            $pointsAwarded = 0;
+            $correctAns = $question['correct_answer'];
+            
+            if ($question['question_type'] === 'short_answer') {
+                if ($correctAns !== 'MANUAL_GRADING') {
+                    if (trim(strtolower($answer)) === trim(strtolower($correctAns))) {
+                        $isCorrect = 1;
+                        $pointsAwarded = $question['points'];
+                    }
+                }
+            } else {
+                if ((string)$answer === (string)$correctAns) {
+                    $isCorrect = 1;
+                    $pointsAwarded = $question['points'];
                 }
             }
-            $question['options'] = $options;
-            unset($question['options_raw']);
+
+            // 2. Save detailed answer
+            $stmt = $this->db->prepare("
+                INSERT INTO student_answers (result_id, question_id, student_answer, is_correct, points_awarded, time_taken_seconds, answered_at) 
+                VALUES (?, ?, ?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE 
+                    student_answer = VALUES(student_answer), 
+                    is_correct = VALUES(is_correct),
+                    points_awarded = VALUES(points_awarded),
+                    time_taken_seconds = VALUES(time_taken_seconds),
+                    answered_at = NOW()
+            ");
+            return $stmt->execute([$resultId, $questionId, $answer, $isCorrect, $pointsAwarded, $timeTaken]);
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    public function getLiveStats($quizId) {
+        // 1. Get total question count
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM questions WHERE quiz_id = ?");
+        $stmt->execute([$quizId]);
+        $totalQuestions = $stmt->fetchColumn();
+
+        // 2. Get questions IDs in order
+        $stmt = $this->db->prepare("SELECT id FROM questions WHERE quiz_id = ? ORDER BY id ASC");
+        $stmt->execute([$quizId]);
+        $questionIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        // 3. Get student stats
+        // We order by status (submitted first?), then correct count, then time
+        $sql = "SELECT s.id as student_db_id, s.name, s.student_id as student_display_id,
+                r.id as result_id, r.status, r.started_at,
+                (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id) as answered_count,
+                (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 1) as correct_count,
+                (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 0) as wrong_count,
+                (SELECT COALESCE(SUM(sa.time_taken_seconds), 0) FROM student_answers sa WHERE sa.result_id = r.id) as total_time_spent
+                FROM results r
+                JOIN students s ON r.student_id = s.id
+                WHERE r.quiz_id = ?
+                ORDER BY 
+                    CASE WHEN r.status = 'submitted' THEN 1 ELSE 0 END DESC,
+                    correct_count DESC, 
+                    total_time_spent ASC, 
+                    answered_count DESC";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$quizId]);
+        $stats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // 4. Enrich with percentage and cleanup
+        foreach ($stats as &$row) {
+            $row['total_questions'] = (int)$totalQuestions;
+            $row['percentage'] = $totalQuestions > 0 ? round(($row['correct_count'] / $totalQuestions) * 100, 1) : 0;
             
-            // For manual grading
-            if ($question['is_manually_graded'] === null) {
-                $question['is_manually_graded'] = ($question['question_type'] === 'short_answer');
+            // Map status labels
+            if ($row['status'] === 'submitted') {
+                $row['status_label'] = 'Finished';
+            } else {
+                $row['status_label'] = ((int)$row['answered_count'] === 0) ? 'Started' : 'In Progress';
+            }
+        }
+
+        return $stats;
+    }
+    
+    public function submit($resultId) {
+        // 1. Calculate Results summary
+        $summary = $this->calculateSummary($resultId);
+        
+        // 2. Update Result record
+        return $this->update($resultId, [
+            'status' => 'submitted',
+            'submitted_at' => date('Y-m-d H:i:s'),
+            'score' => $summary['score'],
+            'total_points' => $summary['total_points']
+        ]);
+    }
+
+    public function calculateSummary($resultId) {
+        // Fetch Result to get Quiz ID
+        $result = $this->find($resultId);
+        if (!$result) return ['score' => 0, 'total_points' => 0, 'correct_answers' => 0, 'total_questions' => 0];
+        
+        $quizId = $result['quiz_id'];
+        
+        // Fetch Questions
+        $stmt = $this->db->prepare("SELECT id, question_type, correct_answer, points FROM questions WHERE quiz_id = ?");
+        $stmt->execute([$quizId]);
+        $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        // Fetch Student Answers
+        $stmt = $this->db->prepare("SELECT question_id, student_answer FROM student_answers WHERE result_id = ?");
+        $stmt->execute([$resultId]);
+        $answers = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // [question_id => answer]
+        
+        $score = 0;
+        $totalPossible = 0;
+        $correctCount = 0;
+        
+        foreach ($questions as $q) {
+            $totalPossible += $q['points'];
+            $qid = $q['id'];
+            if (!isset($answers[$qid])) continue;
+            
+            $studentAns = $answers[$qid];
+            $correctAns = $q['correct_answer'];
+            $isCorrect = false;
+
+            if ($q['question_type'] === 'short_answer') {
+                if (trim(strtolower($studentAns)) === trim(strtolower($correctAns)) && $correctAns !== 'MANUAL_GRADING') {
+                    $isCorrect = true;
+                }
+            } else {
+                if ((string)$studentAns === (string)$correctAns) {
+                    $isCorrect = true;
+                }
+            }
+
+            if ($isCorrect) {
+                $score += $q['points'];
+                $correctCount++;
             }
         }
         
-        $result['questions'] = $questions;
-        
-        // Calculate statistics
-        $result['percentage'] = $result['total_questions'] > 0 
-            ? round(($result['correct_answers'] / $result['total_questions']) * 100, 2) 
-            : 0;
-            
-        $result['grade'] = $this->calculateGrade($result['percentage']);
-        
-        return $result;
+        return [
+            'score' => $score,
+            'total_points' => $totalPossible,
+            'correct_answers' => $correctCount,
+            'total_questions' => count($questions)
+        ];
     }
-    
-    // Get results for a quiz (for teachers)
-    public function getQuizResults($quizId, $teacherId = null) {
-        $params = [$quizId];
-        $sql = "SELECT r.*, s.name as student_name, s.student_id,
-                (SELECT COUNT(*) FROM questions WHERE quiz_id = r.quiz_id) as total_questions,
-                (SELECT COUNT(*) FROM student_answers sa 
-                 WHERE sa.result_id = r.id AND sa.is_correct = 1) as correct_answers
-                FROM {$this->table} r
-                JOIN students s ON r.student_id = s.id";
+
+    public function getByQuizId($quizId) {
+        $sql = "SELECT r.*, s.name as student_name, s.student_id as student_display_id 
+                FROM results r 
+                JOIN students s ON r.student_id = s.id 
+                WHERE r.quiz_id = ?
+                ORDER BY r.submitted_at DESC";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$quizId]);
         
-        if ($teacherId !== null) {
-            $sql .= " JOIN quizzes q ON r.quiz_id = q.id AND q.teacher_id = ?";
-            $params[] = $teacherId;
-        }
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        $sql .= " WHERE r.quiz_id = ?
-                 ORDER BY r.score DESC, s.name";
-        
-        $results = $this->query($sql, $params)->fetchAll();
-        
-        // Calculate additional statistics
-        foreach ($results as &$result) {
-            $result['percentage'] = $result['total_questions'] > 0 
-                ? round(($result['correct_answers'] / $result['total_questions']) * 100, 2) 
-                : 0;
-                
-            $result['grade'] = $this->calculateGrade($result['percentage']);
-            
-            // Get number of questions that need manual grading
-            $sql = "SELECT COUNT(*) as count 
-                    FROM student_answers sa
-                    JOIN questions q ON sa.question_id = q.id
-                    WHERE sa.result_id = ? 
-                    AND q.question_type = 'short_answer'
-                    AND sa.is_correct IS NULL";
-                    
-            $needsGrading = $this->query($sql, [$result['id']])->fetch();
-            $result['needs_grading'] = (int)$needsGrading['count'];
+        foreach ($results as &$row) {
+            $row['student_id'] = $row['student_display_id'];
+            unset($row['student_display_id']);
         }
         
         return $results;
-    }
-    
-    // Grade a student's answer (for short answers)
-    public function gradeAnswer($resultId, $questionId, $isCorrect, $teacherId) {
-        $this->beginTransaction();
-        
-        try {
-            // Verify the teacher has permission to grade this answer
-            $sql = "SELECT sa.*, q.quiz_id, q.points, qz.teacher_id
-                    FROM student_answers sa
-                    JOIN questions q ON sa.question_id = q.id
-                    JOIN quizzes qz ON q.quiz_id = qz.id
-                    WHERE sa.result_id = ? AND sa.question_id = ? AND qz.teacher_id = ?";
-                    
-            $answer = $this->query($sql, [$resultId, $questionId, $teacherId])->fetch();
-            
-            if (!$answer) {
-                throw new Exception('Answer not found or access denied', 404);
-            }
-            
-            // Update the answer
-            $points = $isCorrect ? $answer['points'] : 0;
-            
-            $this->query(
-                "UPDATE student_answers 
-                 SET is_correct = ?, points_earned = ?, is_manually_graded = 1
-                 WHERE result_id = ? AND question_id = ?",
-                [$isCorrect ? 1 : 0, $points, $resultId, $questionId]
-            );
-            
-            // Update the result summary
-            $this->updateResultScore($resultId);
-            
-            $this->commit();
-            
-            return [
-                'success' => true,
-                'points_earned' => $points,
-                'is_correct' => (bool)$isCorrect
-            ];
-            
-        } catch (Exception $e) {
-            $this->rollBack();
-            throw $e;
-        }
-    }
-    
-    // Update the result's score based on all answers
-    private function updateResultScore($resultId) {
-        $sql = "UPDATE results r
-                SET score = (
-                    SELECT COALESCE(SUM(sa.points_earned), 0)
-                    FROM student_answers sa
-                    WHERE sa.result_id = r.id
-                ),
-                correct_answers = (
-                    SELECT COUNT(*)
-                    FROM student_answers sa
-                    WHERE sa.result_id = r.id AND sa.is_correct = 1
-                )
-                WHERE r.id = ?";
-                
-        $this->query($sql, [$resultId]);
-    }
-    
-    // Calculate grade based on percentage
-    private function calculateGrade($percentage) {
-        if ($percentage >= 90) return 'A';
-        if ($percentage >= 80) return 'B';
-        if ($percentage >= 70) return 'C';
-        if ($percentage >= 60) return 'D';
-        return 'F';
     }
 }

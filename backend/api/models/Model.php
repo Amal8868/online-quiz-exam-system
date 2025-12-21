@@ -11,14 +11,12 @@ abstract class Model {
         $this->db = getDBConnection();
     }
 
-    // Find a record by primary key
     public function find($id) {
         $stmt = $this->db->prepare("SELECT * FROM {$this->table} WHERE {$this->primaryKey} = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }
 
-    // Get all records
     public function all($conditions = [], $orderBy = '', $limit = null, $offset = null) {
         $sql = "SELECT * FROM {$this->table}";
         $params = [];
@@ -48,9 +46,10 @@ abstract class Model {
         return $stmt->fetchAll();
     }
 
-    // Create a new record
     public function create(array $data) {
+        // Filter data to only include fillable fields
         $filteredData = array_intersect_key($data, array_flip($this->fillable));
+        
         $columns = implode(', ', array_keys($filteredData));
         $placeholders = ':' . implode(', :', array_keys($filteredData));
         
@@ -65,7 +64,6 @@ abstract class Model {
         return $this->db->lastInsertId();
     }
 
-    // Update a record
     public function update($id, array $data) {
         $filteredData = array_intersect_key($data, array_flip($this->fillable));
         $set = [];
@@ -85,31 +83,26 @@ abstract class Model {
         return $stmt->execute();
     }
 
-    // Delete a record
     public function delete($id) {
         $sql = "DELETE FROM {$this->table} WHERE {$this->primaryKey} = ?";
         $stmt = $this->db->prepare($sql);
         return $stmt->execute([$id]);
     }
 
-    // Execute a custom query
     protected function query($sql, $params = []) {
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt;
     }
 
-    // Begin a transaction
     protected function beginTransaction() {
         return $this->db->beginTransaction();
     }
 
-    // Commit a transaction
     protected function commit() {
         return $this->db->commit();
     }
 
-    // Rollback a transaction
     protected function rollBack() {
         return $this->db->rollBack();
     }
