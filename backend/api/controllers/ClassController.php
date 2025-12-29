@@ -35,6 +35,31 @@ class ClassController extends BaseController {
             return $this->error($e->getMessage(), $e->getCode() ?: 500);
         }
     }
+
+    // Update class details
+    public function updateClass($teacherId, $classId, $data) {
+        try {
+            $classModel = new ClassModel();
+            $class = $classModel->find($classId);
+            if (!$class || $class['teacher_id'] != $teacherId) {
+                return $this->error('Class not found or unauthorized', 404);
+            }
+            $allowed = ['name', 'section', 'academic_year'];
+            $updateData = [];
+            foreach ($allowed as $field) {
+                if (isset($data[$field])) {
+                    $updateData[$field] = $data[$field];
+                }
+            }
+            if (empty($updateData)) {
+                return $this->error('No valid fields to update', 400);
+            }
+            $classModel->update($classId, $updateData);
+            return $this->success(['message' => 'Class updated']);
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
     
     // Get class details with students
     public function getClassDetails($teacherId, $classId) {

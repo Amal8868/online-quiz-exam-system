@@ -6,7 +6,8 @@ import {
     AcademicCapIcon,
     MagnifyingGlassIcon,
     ChevronRightIcon,
-    TableCellsIcon
+    TableCellsIcon,
+    PresentationChartBarIcon
 } from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
 import { Link, useNavigate } from 'react-router-dom';
@@ -63,38 +64,48 @@ const ClassList = () => {
 
     return (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex justify-between items-center mb-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Your Classes</h1>
-                    <p className="text-gray-500 text-sm">Manage your class rosters and student groups</p>
+                    <div className="flex items-center gap-4 mb-2">
+                        <div className="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl">
+                            <UserGroupIcon className="h-10 w-10 text-indigo-600 dark:text-indigo-400" />
+                        </div>
+                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Your Classes</h1>
+                    </div>
+                    <p className="text-slate-500 font-semibold uppercase tracking-widest text-[11px] mt-2">
+                        MANAGE YOUR CLASS ROSTERS AND STUDENT GROUPS
+                    </p>
                 </div>
-                <div className="flex space-x-3">
+            </div>
+
+            {/* Search and Actions Row */}
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-8">
+                <div className="relative group max-w-md w-full">
+                    <MagnifyingGlassIcon className="h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+                    <input
+                        type="text"
+                        placeholder="Search classes or sections..."
+                        className="w-full pl-11 pr-4 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:border-indigo-500 outline-none transition-all font-medium text-base shadow-sm"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
+
+                <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
                     <button
                         onClick={() => navigate('/teacher/classes/import')}
-                        className="btn bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 font-bold px-4 py-2 rounded-xl flex items-center transition-all border border-indigo-100 dark:border-indigo-800"
+                        className="btn bg-white dark:bg-gray-800 text-indigo-600 hover:text-indigo-700 font-bold px-6 py-2.5 rounded-2xl flex items-center transition-all border-2 border-gray-100 dark:border-gray-700 shadow-sm text-sm"
                     >
-                        <TableCellsIcon className="h-5 w-5 mr-1" />
+                        <TableCellsIcon className="h-5 w-5 mr-2" />
                         One-Time Upload
                     </button>
                     <button
                         onClick={() => setShowCreateModal(true)}
-                        className="btn btn-primary flex items-center"
+                        className="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-xl flex items-center transition-all shadow-lg shadow-indigo-200 dark:shadow-none text-sm"
                     >
                         <PlusIcon className="h-5 w-5 mr-2" /> New Class
                     </button>
                 </div>
-            </div>
-
-            {/* Search and Filters */}
-            <div className="mb-6 relative">
-                <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                    type="text"
-                    placeholder="Search classes or sections..."
-                    className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 dark:bg-gray-800"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                />
             </div>
 
             {/* Class Grid */}
@@ -105,39 +116,36 @@ const ClassList = () => {
                             key={item.id}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
-                            whileHover={{ y: -4 }}
-                            className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden"
+                            className="bg-white dark:bg-[#111827] rounded-xl border border-gray-100 dark:border-slate-800 shadow-xl shadow-gray-100/50 dark:shadow-none overflow-hidden group transition-all duration-300"
                         >
-                            <Link to={`/teacher/classes/${item.id}`} className="block p-6">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg">
-                                        <AcademicCapIcon className="h-6 w-6 text-indigo-600" />
+                            <Link to={`/teacher/classes/${item.id}`} className="block h-full p-8">
+                                <div className="flex justify-between items-start mb-6">
+                                    <div className="p-3 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl">
+                                        <AcademicCapIcon className="h-7 w-7 text-indigo-600 dark:text-indigo-400" />
                                     </div>
-                                    <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-bold rounded uppercase">
+                                    <span className="px-3 py-1 bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 text-xs font-bold rounded-lg border border-transparent dark:border-slate-700/50">
                                         {item.academic_year}
                                     </span>
                                 </div>
-                                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">
+
+                                <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-1 group-hover:text-indigo-600 transition-colors">
                                     {item.name}
                                 </h3>
-                                <p className="text-gray-500 text-sm mb-4">
-                                    Section: {item.section || 'N/A'}
+                                <p className="text-gray-500 dark:text-slate-500 text-base font-medium">
+                                    {item.section || 'General Section'}
                                 </p>
-                                <div className="flex items-center space-x-4 pt-4 border-t border-gray-50 dark:border-gray-700">
-                                    <div className="flex items-center text-gray-500 text-xs font-medium">
-                                        <UserGroupIcon className="h-4 w-4 mr-1" />
+
+                                <div className="mt-auto pt-6 border-t border-gray-50 dark:border-slate-800/50 flex justify-end">
+                                    <div className="flex items-center text-gray-400 dark:text-slate-500 font-bold text-[10px] uppercase tracking-widest">
+                                        <UserGroupIcon className="h-4 w-4 mr-2 opacity-70" />
                                         {item.student_count || 0} Students
-                                    </div>
-                                    <div className="flex items-center text-gray-500 text-xs font-medium">
-                                        <ChevronRightIcon className="h-4 w-4 mr-1" />
-                                        {item.quiz_count || 0} Quizzes
                                     </div>
                                 </div>
                             </Link>
                         </motion.div>
                     ))
                 ) : (
-                    <div className="col-span-full py-12 text-center bg-gray-50 dark:bg-gray-800/50 rounded-xl border-2 border-dashed border-gray-200 dark:border-gray-700">
+                    <div className="col-span-full py-20 text-center bg-gray-50/50 dark:bg-gray-800/30 rounded-xl border-4 border-dashed border-gray-100 dark:border-gray-700">
                         <UserGroupIcon className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">No classes found</h3>
                         <p className="text-gray-500 mt-1">Create your first class to start managing students</p>
@@ -153,9 +161,9 @@ const ClassList = () => {
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6"
+                            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-10 border border-gray-100 dark:border-gray-700"
                         >
-                            <h2 className="text-xl font-bold mb-4">Create New Class</h2>
+                            <h2 className="text-3xl font-black tracking-tight mb-6">Create New Class</h2>
                             <form onSubmit={handleCreateClass} className="space-y-4">
                                 <div>
                                     <label className="block text-sm font-medium mb-1">Class Name *</label>

@@ -58,11 +58,38 @@ class Quiz extends Model {
 
     public function getAllowedClasses($quizId) {
         $stmt = $this->db->prepare("
-            SELECT c.* FROM classes c
+            SELECT c.*, 
+            (SELECT COUNT(*) FROM students WHERE class_id = c.id) as student_count
+            FROM classes c
             JOIN quiz_classes qc ON c.id = qc.class_id
             WHERE qc.quiz_id = ?
         ");
         $stmt->execute([$quizId]);
+        return $stmt->fetchAll();
+    }
+
+    public function deleteQuiz($id) {
+        // Get material URL to delete file
+        $quiz = $this->find($id);
+        if ($quiz && !empty($quiz['material_url'])) {
+            $filePath = __DIR__ . '/../../' . $quiz['material_url'];
+            if (file_exists($filePath)) {
+                unlink($filePath);
+            }
+        }
+        
+        $stmt = $this->db->prepare("DELETE FROM {$this->table} WHERE id = ?");
+        return $stmt->execute([$id]);
+    }
+
+    public function getByClassId($classId) {
+        $stmt = $this->db->prepare("
+            SELECT q.* FROM {$this->table} q
+            JOIN quiz_classes qc ON q.id = qc.quiz_id
+            WHERE qc.class_id = ?
+            ORDER BY q.created_at DESC
+        ");
+        $stmt->execute([$classId]);
         return $stmt->fetchAll();
     }
 }

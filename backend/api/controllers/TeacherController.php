@@ -26,8 +26,12 @@ class TeacherController {
                 throw new Exception('Fields cannot be empty', 400);
             }
             
+            if (!preg_match('/^[a-zA-Z\s]+$/', $name)) {
+                throw new Exception('Name can only contain letters and spaces (no numbers allowed)', 400);
+            }
+            
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                throw new Exception('Invalid email format', 400);
+                throw new Exception('Please provide a valid email address', 400);
             }
             
             if (strlen($password) < 6) {
@@ -88,6 +92,29 @@ class TeacherController {
             ];
         }
     }
+
+    // Reset password
+    public function resetPassword($data) {
+        try {
+            if (empty($data['email']) || empty($data['password'])) {
+                throw new Exception('Email and password are required', 400);
+            }
+            
+            $this->teacherModel->resetPassword($data['email'], $data['password']);
+            
+            return [
+                'success' => true,
+                'message' => 'Password reset successful'
+            ];
+            
+        } catch (Exception $e) {
+            http_response_code(500);
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
     
     // Get teacher's dashboard data
     public function getDashboard($teacherId) {
@@ -107,7 +134,7 @@ class TeacherController {
                 'active_quizzes' => array_reduce($quizzes, function($carry, $quiz) {
                     return $carry + ($quiz['status'] === 'active' ? 1 : 0);
                 }, 0),
-                // 'total_students' => ... count via quiz_allowed_students
+                'total_students' => (int)$this->teacherModel->getTotalStudents($teacherId)
             ];
             
             return [

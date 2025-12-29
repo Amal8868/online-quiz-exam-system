@@ -35,8 +35,12 @@ class Teacher extends Model {
     public function login($email, $password) {
         $teacher = $this->query("SELECT * FROM {$this->table} WHERE email = ?", [$email])->fetch();
         
-        if (!$teacher || !password_verify($password, $teacher['password'])) {
-            throw new Exception('Invalid email or password');
+        if (!$teacher) {
+            throw new Exception('Email address not found');
+        }
+
+        if (!password_verify($password, $teacher['password'])) {
+            throw new Exception('Incorrect password');
         }
         
         // Remove password before returning
@@ -65,5 +69,20 @@ class Teacher extends Model {
                 ORDER BY q.created_at DESC";
                 
         return $this->query($sql, [$teacherId])->fetchAll();
+    }
+
+    // Get total unique students across all classes for a teacher
+    public function getTotalStudents($teacherId) {
+        $sql = "SELECT COUNT(DISTINCT s.id) 
+                FROM students s 
+                JOIN classes c ON s.class_id = c.id 
+                WHERE c.teacher_id = ?";
+        return $this->query($sql, [$teacherId])->fetchColumn();
+    }
+
+    // Reset password (for demo purposes)
+    public function resetPassword($email, $newPassword) {
+        $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
+        $this->query("UPDATE {$this->table} SET password = ? WHERE email = ?", [$hashedPassword, $email]);
     }
 }

@@ -26,10 +26,50 @@ class QuizController extends BaseController {
         $quizzes = $quiz->all(['teacher_id' => $teacherId], 'created_at DESC');
         return $this->success($quizzes);
     }
+
+    public function getQuizzesByClass($teacherId, $classId) {
+        try {
+            // Verify class belongs to teacher (optional but recommended)
+            // For now, just fetch filtering by teacher_id in the model if needed, 
+            // but the class/quiz relationship is already built on teacher data.
+            $quizModel = new Quiz();
+            $quizzes = $quizModel->getByClassId($classId);
+            
+            // Filter to ensure only teacher's quizzes are returned if there's any cross-over
+            $filtered = array_filter($quizzes, function($q) use ($teacherId) {
+                return $q['teacher_id'] == $teacherId;
+            });
+            
+            return $this->success(array_values($filtered));
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
     
+    public function deleteQuiz($teacherId, $quizId) {
+        try {
+            $quizModel = new Quiz();
+            $quiz = $quizModel->find($quizId); // Verify ownership
+            if (!$quiz || $quiz['teacher_id'] != $teacherId) {
+                throw new Exception('Quiz not found or unauthorized', 404);
+            }
+
+            if ($quizModel->deleteQuiz($quizId)) { // Uses the new method
+                 return $this->success(['message' => 'Quiz deleted successfully']);
+            } else {
+                 throw new Exception('Failed to delete quiz');
+            }
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), $e->getCode() ?: 500);
+        }
+    }
+
     public function createQuiz($teacherId, $data) {
+        $db = getDBConnection();
         try {
             $this->validateRequiredFields($data, ['title']);
+            
+            $db->beginTransaction();
             
             $roomCode = $this->generateRoomCode();
             
@@ -43,10 +83,20 @@ class QuizController extends BaseController {
                 'timer_type' => $data['timer_type'] ?? 'exam', 
                 'status' => 'draft'
             ]);
+
+            // Handle integrated class selection
+            if (!empty($data['class_ids']) && is_array($data['class_ids'])) {
+                $stmt = $db->prepare("INSERT INTO quiz_classes (quiz_id, class_id) VALUES (?, ?)");
+                foreach ($data['class_ids'] as $classId) {
+                    $stmt->execute([$quizId, $classId]);
+                }
+            }
             
+            $db->commit();
             return $this->success(['id' => $quizId, 'room_code' => $roomCode], 'Quiz created successfully', 201);
             
         } catch (Exception $e) {
+            $db->rollBack();
             return $this->error($e->getMessage(), 500);
         }
     }
@@ -74,20 +124,62 @@ class QuizController extends BaseController {
 
         $quiz['questions'] = $questions;
         
-        $allowed = $quizModel->getAllowedStudents($quizId);
-        $quiz['allowed_students'] = $allowed; // Return full list
-        $quiz['allowed_students_count'] = count($allowed);
-        
         $totalPoints = 0;
         foreach ($questions as $q) {
-            $totalPoints += $q['points'];
+            $totalPoints += $q['points'] ?? 0;
         }
         $quiz['total_points'] = $totalPoints;
         
         // Add allowed classes
-        $quiz['allowed_classes'] = $quizModel->getAllowedClasses($quizId);
+        $allowedClasses = $quizModel->getAllowedClasses($quizId);
+        $quiz['allowed_classes'] = $allowedClasses;
+        
+        // Calculate total students from assigned classes if using class-based enrollment
+        $totalClassStudents = 0;
+        foreach ($allowedClasses as $class) {
+            $totalClassStudents += (int)($class['student_count'] ?? 0);
+        }
+        
+        // If we have class-based students, use that as the enrollment count
+        // Otherwise fallback to the specific allowed students count (roster)
+        if ($totalClassStudents > 0) {
+            $quiz['allowed_students_count'] = $totalClassStudents;
+        } else {
+            $allowed = $quizModel->getAllowedStudents($quizId);
+            $quiz['allowed_students'] = $allowed;
+            $quiz['allowed_students_count'] = count($allowed);
+        }
+        
+        // Add server time for timer synchronization
+        $quiz['server_time'] = date('Y-m-d H:i:s');
         
         return $this->success($quiz);
+    }
+
+    // Update quiz details
+    public function updateQuiz($teacherId, $quizId, $data) {
+        try {
+            $quizModel = new Quiz();
+            $quiz = $quizModel->find($quizId);
+            if (!$quiz || $quiz['teacher_id'] != $teacherId) {
+                return $this->error('Quiz not found or unauthorized', 404);
+            }
+            // Allowed fields for update
+            $allowed = ['title', 'description', 'duration_minutes', 'timer_type', 'status', 'room_code'];
+            $updateData = [];
+            foreach ($allowed as $field) {
+                if (isset($data[$field])) {
+                    $updateData[$field] = $data[$field];
+                }
+            }
+            if (empty($updateData)) {
+                return $this->error('No valid fields to update', 400);
+            }
+            $quizModel->update($quizId, $updateData);
+            return $this->success(['message' => 'Quiz updated']);
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
     }
 
     public function setQuizClasses($teacherId, $quizId, $data) {
@@ -221,56 +313,9 @@ class QuizController extends BaseController {
         $results = $resultModel->getByQuizId($quizId);
         
         return $this->success($results);
-        return $this->success($results);
     }
 
-    public function uploadMaterial($teacherId, $quizId, $files) {
-        try {
-            $quizModel = new Quiz();
-            $quiz = $quizModel->find($quizId);
-            
-            if (!$quiz || $quiz['teacher_id'] != $teacherId) {
-                return $this->error('Quiz not found', 404);
-            }
-            
-            if (!isset($files['material']) || $files['material']['error'] !== UPLOAD_ERR_OK) {
-                return $this->error('No file uploaded or upload error', 400);
-            }
-            
-            $file = $files['material'];
-            $extension = pathinfo($file['name'], PATHINFO_EXTENSION);
-            
-            // Validate extension (allow PDF, DOC, DOCX, PPT, PPTX, TXT, IMG)
-            $allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png'];
-            if (!in_array(strtolower($extension), $allowed)) {
-                return $this->error('Invalid file type', 400);
-            }
-            
-            $filename = 'material_' . $quizId . '_' . time() . '.' . $extension;
-            $uploadDir = __DIR__ . '/../../uploads/materials/';
-            
-            if (!file_exists($uploadDir)) {
-                mkdir($uploadDir, 0777, true);
-            }
-            
-            $destination = $uploadDir . $filename;
-            
-            if (move_uploaded_file($file['tmp_name'], $destination)) {
-                // Update DB
-                $db = getDBConnection();
-                $stmt = $db->prepare("UPDATE quizzes SET material_url = ? WHERE id = ?");
-                $webPath = '/uploads/materials/' . $filename;
-                $stmt->execute([$webPath, $quizId]);
-                
-                return $this->success(['url' => $webPath], 'Material uploaded successfully');
-            } else {
-                return $this->error('Failed to move uploaded file', 500);
-            }
-            
-        } catch (Exception $e) {
-            return $this->error($e->getMessage(), 500);
-        }
-    }
+
     public function setStatus($teacherId, $quizId, $data) {
         try {
             $quizModel = new Quiz();
@@ -316,37 +361,7 @@ class QuizController extends BaseController {
         }
     }
 
-    public function getWaitingStudents($teacherId, $quizId) {
-        try {
-            $quizModel = new Quiz();
-            $quiz = $quizModel->find($quizId);
-            if (!$quiz || $quiz['teacher_id'] != $teacherId) {
-                return $this->error('Quiz not found', 404);
-            }
 
-            $db = getDBConnection();
-            $stmt = $db->prepare("
-                SELECT s.student_id, s.name, r.status 
-                FROM students s
-                JOIN results r ON s.id = r.student_id
-                WHERE r.quiz_id = ? AND r.status IN ('waiting', 'in_progress', 'submitted')
-                ORDER BY r.status DESC, s.name ASC
-            ");
-            $stmt->execute([$quizId]);
-            $students = $stmt->fetchAll();
-
-            $stmt = $db->prepare("SELECT * FROM invalid_entries WHERE quiz_id = ? ORDER BY created_at DESC LIMIT 10");
-            $stmt->execute([$quizId]);
-            $invalid = $stmt->fetchAll();
-
-            return $this->success([
-                'participants' => $students,
-                'invalid_entries' => $invalid
-            ]);
-        } catch (Exception $e) {
-            return $this->error($e->getMessage(), 500);
-        }
-    }
 
     public function getLiveProgress($teacherId, $quizId) {
         try {
@@ -360,6 +375,77 @@ class QuizController extends BaseController {
             $stats = $resultModel->getLiveStats($quizId);
             
             return $this->success($stats);
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
+
+    public function adjustTime($teacherId, $quizId, $data) {
+        try {
+            $quizModel = new Quiz();
+            $quiz = $quizModel->find($quizId);
+            if (!$quiz || $quiz['teacher_id'] != $teacherId) {
+                return $this->error('Quiz not found', 404);
+            }
+
+            if ($quiz['status'] !== 'started') {
+                return $this->error('Can only adjust time for a started quiz', 400);
+            }
+
+            $this->validateRequiredFields($data, ['adjustment']);
+            $adjustment = (int)$data['adjustment']; // in minutes
+
+            $newDuration = (int)$quiz['duration_minutes'] + $adjustment;
+            if ($newDuration < 1) {
+                $newDuration = 1; // Minimum 1 minute
+            }
+
+            $quizModel->update($quizId, ['duration_minutes' => $newDuration]);
+            
+            return $this->success([
+                'new_duration' => $newDuration,
+                'adjustment_applied' => $adjustment
+            ], 'Time adjusted successfully');
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
+
+    public function controlStudent($teacherId, $resultId, $data) {
+        try {
+            $this->validateRequiredFields($data, ['action']);
+            $action = $data['action']; // 'pause', 'resume', 'block'
+            
+            $resultModel = new Result();
+            $result = $resultModel->find($resultId);
+            
+            if (!$result) {
+                return $this->error('Result not found', 404);
+            }
+            
+            $quizModel = new Quiz();
+            $quiz = $quizModel->find($result['quiz_id']);
+            
+            if (!$quiz || $quiz['teacher_id'] != $teacherId) {
+                return $this->error('Unauthorized', 403);
+            }
+            
+            $updateData = [];
+            if ($action === 'pause') {
+                $updateData['is_paused'] = 1;
+            } elseif ($action === 'resume') {
+                $updateData['is_paused'] = 0;
+            } elseif ($action === 'block') {
+                $updateData['is_blocked'] = 1;
+            } else {
+                return $this->error('Invalid action', 400);
+            }
+            
+            if ($resultModel->update($resultId, $updateData)) {
+                return $this->success(['action' => $action], 'Student control updated');
+            } else {
+                throw new Exception('Failed to update student control');
+            }
         } catch (Exception $e) {
             return $this->error($e->getMessage(), 500);
         }

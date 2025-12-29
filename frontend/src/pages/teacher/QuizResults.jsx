@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowPathIcon,
     ClockIcon,
     ChevronLeftIcon,
     MagnifyingGlassIcon,
-    FunnelIcon
+    FunnelIcon,
+    PresentationChartBarIcon
 } from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
 
@@ -91,8 +93,8 @@ const QuizResults = () => {
                             <ChevronLeftIcon className="h-4 w-4 mr-1" /> Back to Management
                         </Link>
                     </div>
-                    <h1 className="text-3xl font-black text-gray-900 dark:text-white">Live Monitoring Board</h1>
-                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wider">
+                    <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Live Monitoring Board</h1>
+                    <p className="text-slate-500 font-semibold uppercase tracking-widest text-[11px] mt-2">
                         Quiz: <span className="text-indigo-600 underline">{quiz.title}</span> • Code: <span className="font-mono text-indigo-600 bg-indigo-50 px-2 rounded">{quiz.room_code}</span>
                     </p>
                 </div>
@@ -103,27 +105,13 @@ const QuizResults = () => {
                     </div>
                     <button
                         onClick={fetchMonitoring}
-                        className="p-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-2xl hover:bg-gray-50 transition-all shadow-sm"
+                        className="p-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl hover:bg-gray-50 transition-all shadow-sm"
                     >
                         <ArrowPathIcon className="h-6 w-6 text-gray-600" />
                     </button>
                 </div>
             </div>
 
-            {/* Dashboard Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                    { label: 'Total Joined', val: statsOverview.total, color: 'text-indigo-600', bg: 'hover:border-indigo-200' },
-                    { label: 'Live Now', val: statsOverview.inProgress, color: 'text-orange-500', bg: 'hover:border-orange-200' },
-                    { label: 'Finished', val: statsOverview.finished, color: 'text-green-500', bg: 'hover:border-green-200' },
-                    { label: 'Avg Accuracy', val: `${statsOverview.avgAccuracy}%`, color: 'text-blue-500', bg: 'hover:border-blue-200' },
-                ].map((s, i) => (
-                    <div key={i} className={`bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border-2 border-transparent transition-all ${s.bg}`}>
-                        <span className="text-gray-400 text-[9px] font-black uppercase tracking-widest block mb-1">{s.label}</span>
-                        <div className={`text-2xl font-black ${s.color}`}>{s.val}</div>
-                    </div>
-                ))}
-            </div>
 
             {/* Controls */}
             <div className="flex flex-col md:flex-row gap-4 items-center">
@@ -132,7 +120,7 @@ const QuizResults = () => {
                     <input
                         type="text"
                         placeholder="Search student name or ID..."
-                        className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-indigo-500 outline-none transition-all font-medium"
+                        className="w-full pl-12 pr-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:border-indigo-500 outline-none transition-all font-medium"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -140,7 +128,7 @@ const QuizResults = () => {
                 <div className="flex items-center space-x-2 w-full md:w-auto">
                     <FunnelIcon className="h-5 w-5 text-gray-400" />
                     <select
-                        className="flex-1 md:w-48 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-indigo-500 outline-none transition-all font-bold text-sm"
+                        className="flex-1 md:w-48 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-xl focus:border-indigo-500 outline-none transition-all font-bold text-sm"
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value)}
                     >
@@ -153,7 +141,7 @@ const QuizResults = () => {
             </div>
 
             {/* Monitoring Table */}
-            <div className="bg-white dark:bg-gray-800 rounded-[2.5rem] shadow-xl shadow-indigo-100/20 border-2 border-gray-100 dark:border-gray-700 overflow-hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl shadow-indigo-100/20 border-2 border-gray-100 dark:border-gray-700 overflow-hidden">
                 <div className="p-8 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
                     <h2 className="text-xl font-black text-gray-800 dark:text-white flex items-center">
                         <div className="w-3 h-3 bg-red-500 rounded-full mr-3 animate-ping"></div>

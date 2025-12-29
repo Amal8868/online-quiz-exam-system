@@ -12,7 +12,7 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
@@ -24,6 +24,7 @@ api.interceptors.request.use(
 export const authAPI = {
   login: (credentials) => api.post('/teachers/login', credentials),
   register: (data) => api.post('/teachers/register', data),
+  resetPassword: (data) => api.post('/teachers/reset-password', data),
 };
 
 export const teacherAPI = {
@@ -32,16 +33,16 @@ export const teacherAPI = {
   getQuiz: (id) => api.get(`/quizzes/${id}`),
   createQuiz: (data) => api.post('/quizzes', data),
   addQuestion: (quizId, data) => api.post(`/quizzes/${quizId}/questions`, data),
+  updateQuestion: (questionId, data) => api.put(`/questions/${questionId}`, data),
+  deleteQuestion: (questionId) => api.delete(`/questions/${questionId}`),
   uploadRoster: (quizId, formData) => api.post(`/quizzes/${quizId}/roster`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
+  deleteQuiz: (quizId) => api.delete(`/quizzes/${quizId}`),
   updateQuizStatus: (quizId, status) => api.post(`/quizzes/${quizId}/status`, { status }),
-  getWaitingStudents: (quizId) => api.get(`/quizzes/${quizId}/waiting`),
+  adjustTime: (quizId, adjustment) => api.post(`/quizzes/${quizId}/adjust-time`, { adjustment }),
   getLiveMonitoring: (quizId) => api.get(`/quizzes/${quizId}/monitoring`),
   getQuizResults: (quizId) => api.get(`/quizzes/${quizId}/results`), // Added missing endpoint
-  uploadMaterial: (quizId, formData) => api.post(`/quizzes/${quizId}/material`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
   // Class Management
   getClasses: () => api.get('/classes'),
   createClass: (data) => api.post('/classes', data),
@@ -49,6 +50,17 @@ export const teacherAPI = {
   uploadClassStudents: (classId, students) => api.post(`/classes/${classId}/students`, { students }),
   globalImportStudents: (students) => api.post('/classes/import', { students }),
   setQuizClasses: (quizId, classIds) => api.post(`/quizzes/${quizId}/classes`, { class_ids: classIds }),
+  getQuizzesByClass: (classId) => api.get(`/classes/${classId}/quizzes`),
+  // Student Management
+  checkStudentsExist: () => api.get('/students/check'),
+  getClassStudents: (classId) => api.get(`/classes/${classId}/students`),
+
+  // Results & Grading
+  getClassQuizResults: (classId, quizId) => api.get(`/teachers/results/${classId}/${quizId}`),
+  getStudentResult: (resultId) => api.get(`/teachers/results/${resultId}`),
+  gradeAnswer: (resultId, data) => api.post(`/teachers/results/${resultId}/grade`, data),
+  exportClassGradebook: (classId) => api.get(`/classes/${classId}/export`, { responseType: 'blob' }), // Change to blob request for auth
+  controlStudent: (resultId, action) => api.post(`/results/${resultId}/control`, { action }),
 };
 
 export const studentAPI = {
@@ -58,9 +70,9 @@ export const studentAPI = {
   getExamQuestions: (quizId) => api.get(`/student/exam/${quizId}/questions`),
   submitAnswer: (data) => api.post('/student/answer', data),
   finishExam: (data) => api.post('/student/finish', data),
-  logViolation: (data) => api.post('/student/violation', data),
   getResult: (resultId) => api.get(`/student/results/${resultId}`), // Added for ResultPage
   updateResultStatus: (resultId, status) => api.post(`/student/results/${resultId}/status`, { status }),
+  getAttemptStatus: (resultId) => api.get(`/student/results/${resultId}/status_check`),
 };
 
 export default api;

@@ -1,16 +1,50 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowUpTrayIcon, DocumentTextIcon, ChartBarIcon, UserGroupIcon, CloudArrowUpIcon, DocumentIcon, AcademicCapIcon, PlusIcon } from '@heroicons/react/24/outline';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import {
+    AcademicCapIcon,
+    PlusIcon,
+    DocumentTextIcon,
+    ClockIcon,
+    MagnifyingGlassIcon,
+    FunnelIcon,
+
+    PlayIcon,
+    PauseIcon,
+    NoSymbolIcon,
+    MinusIcon,
+    PencilSquareIcon,
+    TrashIcon,
+    UsersIcon,
+    BoltIcon,
+    CheckBadgeIcon,
+    ClipboardDocumentListIcon,
+    ChartBarIcon
+} from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
+import ConfirmationModal from '../../components/ConfirmationModal';
+import UpdateQuestionModal from '../../components/UpdateQuestionModal';
+import AddQuestionModal from '../../components/AddQuestionModal';
+import AlertModal from '../../components/AlertModal';
 
 const QuizManage = () => {
     const { quizId } = useParams();
+
+
     const [quiz, setQuiz] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('overview');
     const [error, setError] = useState(null);
 
-    const [waitingStudents, setWaitingStudents] = useState([]);
-    const [invalidEntries, setInvalidEntries] = useState([]);
+    // Live Monitoring State
+    const [liveStats, setLiveStats] = useState([]);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [processingAction, setProcessingAction] = useState(null); // result_id being processed
+
+    // Time Management State
+    const [remainingTime, setRemainingTime] = useState(0);
+    const [isTimeAdjusting, setIsTimeAdjusting] = useState(false);
 
     // Add Question State
     const [showAddForm, setShowAddForm] = useState(false);
@@ -26,72 +60,122 @@ const QuizManage = () => {
         ]
     });
     const [addingQuestion, setAddingQuestion] = useState(false);
+    const [expandedQuestions, setExpandedQuestions] = useState(new Set());
 
-    // Material Upload State
-    const [materialFile, setMaterialFile] = useState(null);
-    const [uploadingMaterial, setUploadingMaterial] = useState(false);
-    const [materialStatus, setMaterialStatus] = useState('');
+    const toggleQuestion = (questionId) => {
+        setExpandedQuestions(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(questionId)) {
+                newSet.delete(questionId);
+            } else {
+                newSet.add(questionId);
+            }
+            return newSet;
+        });
+    };
 
-    const [classes, setClasses] = useState([]);
-    const [selectedClasses, setSelectedClasses] = useState([]);
+    // Question CRUD State
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [updateModalOpen, setUpdateModalOpen] = useState(false);
+
+    const [selectedQuestion, setSelectedQuestion] = useState(null);
+    const [actionLoading, setActionLoading] = useState(false);
+
+    // Student Control Modal State
+    const [studentControlModal, setStudentControlModal] = useState({
+        isOpen: false,
+        resultId: null,
+        action: null
+    });
+
+    // Alert Modal State
+    const [alertConfig, setAlertConfig] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        type: 'success', // 'error' or 'success'
+        buttonText: 'Okay'
+    });
+
+    const showAlert = (title, message, type = 'success', buttonText = 'Okay') => {
+        setAlertConfig({
+            isOpen: true,
+            title,
+            message,
+            type,
+            buttonText
+        });
+    };
+
+    const closeAlert = () => {
+        setAlertConfig(prev => ({ ...prev, isOpen: false }));
+    };
+
+
+    const handleDeleteClick = (e, question) => {
+        e.stopPropagation();
+        setSelectedQuestion(question);
+        setDeleteModalOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!selectedQuestion) return;
+        setActionLoading(true);
+        try {
+            await teacherAPI.deleteQuestion(selectedQuestion.id);
+            setDeleteModalOpen(false);
+            // setSelectedQuestion(null); // Keep for animation
+            fetchQuiz();
+            showAlert('Success', 'Question deleted successfully', 'success');
+        } catch (error) {
+            showAlert('Error', 'Failed to delete question: ' + (error.response?.data?.message || error.message), 'error');
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleUpdateClick = (e, question) => {
+        e.stopPropagation();
+        // Deep copy to avoid mutating state directly and to serve as form data
+        setSelectedQuestion(JSON.parse(JSON.stringify(question)));
+        setUpdateModalOpen(true);
+    };
+
+    const saveUpdate = async () => {
+        if (!selectedQuestion) return;
+        setActionLoading(true);
+        try {
+            await teacherAPI.updateQuestion(selectedQuestion.id, selectedQuestion);
+            setUpdateModalOpen(false);
+            // setSelectedQuestion(null); // Keep for animation
+            fetchQuiz();
+            showAlert('Success', 'Question updated successfully', 'success');
+        } catch (error) {
+            showAlert('Error', 'Failed to update question: ' + (error.response?.data?.message || error.message), 'error');
+        } finally {
+            setActionLoading(false);
+        }
+    };
 
     const fetchQuiz = useCallback(async () => {
         try {
             const response = await teacherAPI.getQuiz(quizId);
-            const data = response.data.data;
-            setQuiz(data);
-            setSelectedClasses(data.allowed_classes?.map(c => c.id) || []);
-            setLoading(false);
+            setQuiz(response.data.data);
+            if (loading) setLoading(false);
         } catch (error) {
             setError(error.response?.data?.message || 'Failed to load quiz details.');
             setLoading(false);
         }
-    }, [quizId]);
+    }, [quizId, loading]);
 
-    const fetchClasses = useCallback(async () => {
+    const fetchMonitoring = useCallback(async () => {
         try {
-            const res = await teacherAPI.getClasses();
-            setClasses(res.data.data || []);
+            const res = await teacherAPI.getLiveMonitoring(quizId);
+            setLiveStats(res.data.data || []);
         } catch (error) {
-            // Silently fail or handle gracefully
-        }
-    }, []);
-
-    const handleClassToggle = useCallback(async (classId) => {
-        const newSelected = selectedClasses.includes(classId)
-            ? selectedClasses.filter(id => id !== classId)
-            : [...selectedClasses, classId];
-
-        setSelectedClasses(newSelected);
-        try {
-            await teacherAPI.setQuizClasses(quizId, newSelected);
-        } catch (error) {
-            alert('Failed to update class restrictions');
-        }
-    }, [quizId, selectedClasses]);
-
-    const fetchWaitingRoom = useCallback(async () => {
-        try {
-            const res = await teacherAPI.getWaitingStudents(quizId);
-            setWaitingStudents(res.data.data.participants || []);
-            setInvalidEntries(res.data.data.invalid_entries || []);
-        } catch (error) {
-            console.error('Error fetching participants:', error);
+            console.error('Error fetching live stats:', error);
         }
     }, [quizId]);
-
-    const getStatusBadge = (status) => {
-        switch (status) {
-            case 'submitted':
-                return <span className="px-2 py-0.5 bg-green-100 text-green-800 text-[10px] font-bold rounded-full border border-green-200 uppercase">Submitted</span>;
-            case 'in_progress':
-                return <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[10px] font-bold rounded-full border border-blue-200 uppercase animate-pulse">In Progress</span>;
-            case 'waiting':
-                return <span className="px-2 py-0.5 bg-gray-100 text-gray-800 text-[10px] font-bold rounded-full border border-gray-200 uppercase">Waiting</span>;
-            default:
-                return null;
-        }
-    };
 
     const updateStatus = async (newStatus) => {
         try {
@@ -99,16 +183,109 @@ const QuizManage = () => {
             fetchQuiz();
         } catch (error) {
             const msg = error.response?.data?.message || error.message;
-            alert('Failed to update status: ' + msg);
+            showAlert('Update Failed', msg, 'error');
+        }
+    };
+
+    const handleTimeAdjustment = async (minutes) => {
+        if (isTimeAdjusting) return;
+        setIsTimeAdjusting(true);
+        try {
+            await teacherAPI.adjustTime(quizId, minutes);
+            await fetchQuiz(); // Refresh to get new duration
+        } catch (error) {
+            showAlert('Adjustment Failed', error.response?.data?.message || error.message, 'error');
+        } finally {
+            setIsTimeAdjusting(false);
+        }
+    };
+
+    const handleStudentControl = async (resultId, action) => {
+        if (action === 'block') {
+            setStudentControlModal({ isOpen: true, resultId, action });
+            return;
+        }
+        executeStudentControl(resultId, action);
+    };
+
+    const executeStudentControl = async (resultId, action) => {
+        setProcessingAction(resultId);
+        try {
+            await teacherAPI.controlStudent(resultId, action);
+            await fetchMonitoring(); // Immediate refresh
+            if (action === 'block') {
+                showAlert('Student Blocked', 'The student has been blocked from the exam.', 'success');
+            }
+        } catch (error) {
+            showAlert('Action Failed', `Failed to ${action} student: ` + (error.response?.data?.message || error.message), 'error');
+        } finally {
+            setProcessingAction(null);
+            setStudentControlModal({ isOpen: false, resultId: null, action: null });
         }
     };
 
     useEffect(() => {
         fetchQuiz();
-        fetchClasses();
-        const pollInterval = setInterval(fetchWaitingRoom, 5000);
+        fetchMonitoring();
+        const pollInterval = setInterval(() => {
+            fetchMonitoring();
+            fetchQuiz();
+        }, 5000);
         return () => clearInterval(pollInterval);
-    }, [fetchQuiz, fetchClasses, fetchWaitingRoom]);
+    }, [fetchQuiz, fetchMonitoring]);
+
+    // Timer Logic
+    useEffect(() => {
+        if (!quiz || quiz.status !== 'started' || !quiz.start_time) {
+            setRemainingTime(0);
+            return;
+        }
+
+        const calculateTime = () => {
+            const start = new Date(quiz.start_time).getTime();
+            const end = start + (quiz.duration_minutes * 60 * 1000);
+            const now = new Date().getTime();
+            const left = Math.max(0, Math.floor((end - now) / 1000));
+            setRemainingTime(left);
+        };
+
+        calculateTime();
+        const timer = setInterval(calculateTime, 1000);
+        return () => clearInterval(timer);
+    }, [quiz]);
+
+    // Watch for Status Changes to Finished
+    const prevStatusRef = useRef(null);
+    useEffect(() => {
+        if (quiz?.status === 'finished' && prevStatusRef.current === 'started') {
+            showAlert('Exam Finished', 'The exam has been successfully finished.', 'success');
+        }
+        if (quiz) {
+            prevStatusRef.current = quiz.status;
+        }
+    }, [quiz]);
+
+
+
+    // Computed Stats for Live View
+    const filteredStats = useMemo(() => {
+        return liveStats.filter(stat => {
+            const matchesSearch = stat.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                stat.student_display_id?.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesStatus = statusFilter === 'all' || stat.status_label?.toLowerCase().replace(' ', '_') === statusFilter;
+            return matchesSearch && matchesStatus;
+        });
+    }, [liveStats, searchTerm, statusFilter]);
+
+    const statsOverview = useMemo(() => ({
+        total: liveStats.length,
+        inProgress: liveStats.filter(s => s.status_label === 'In Progress' || s.status_label === 'Started').length,
+        finished: liveStats.filter(s => s.status_label === 'Finished').length,
+        avgAccuracy: liveStats.length > 0
+            ? (liveStats.reduce((acc, s) => acc + (s.percentage || 0), 0) / liveStats.length).toFixed(1)
+            : 0
+    }), [liveStats]);
+
 
     const handleAddQuestion = async (e) => {
         e.preventDefault();
@@ -119,6 +296,11 @@ const QuizManage = () => {
             let correctAnswer = '';
             if (newQuestion.question_type === 'short_answer') {
                 correctAnswer = 'MANUAL_GRADING';
+            } else if (newQuestion.question_type === 'multiple_selection') {
+                correctAnswer = newQuestion.options
+                    .filter(o => o.is_correct)
+                    .map(o => o.id)
+                    .join(',');
             } else {
                 const correctOpt = newQuestion.options.find(o => o.is_correct);
                 correctAnswer = correctOpt ? correctOpt.id : '';
@@ -143,7 +325,7 @@ const QuizManage = () => {
             });
             fetchQuiz();
         } catch (error) {
-            alert('Failed to add question: ' + (error.response?.data?.message || error.message));
+            showAlert('Error', 'Failed to add question: ' + (error.response?.data?.message || error.message), 'error');
         } finally {
             setAddingQuestion(false);
         }
@@ -154,7 +336,7 @@ const QuizManage = () => {
             o.id === id ? { ...o, [field]: value } : o
         );
 
-        if (field === 'is_correct' && value === true) {
+        if (field === 'is_correct' && value === true && (newQuestion.question_type === 'multiple_choice' || newQuestion.question_type === 'true_false')) {
             setNewQuestion({
                 ...newQuestion,
                 options: newOptions.map(o =>
@@ -166,9 +348,25 @@ const QuizManage = () => {
         }
     };
 
+    const addOptionToNew = () => {
+        const newId = newQuestion.options.length > 0 ? Math.max(...newQuestion.options.map(o => o.id)) + 1 : 1;
+        setNewQuestion({
+            ...newQuestion,
+            options: [...newQuestion.options, { id: newId, option_text: '', is_correct: false }]
+        });
+    };
+
+    const removeOptionFromNew = (id) => {
+        if (newQuestion.options.length <= 2) return;
+        setNewQuestion({
+            ...newQuestion,
+            options: newQuestion.options.filter(o => o.id !== id)
+        });
+    };
+
     const handleTypeChange = (type) => {
         let options = [];
-        if (type === 'multiple_choice') {
+        if (type === 'multiple_choice' || type === 'multiple_selection') {
             options = [
                 { id: 1, option_text: '', is_correct: false },
                 { id: 2, option_text: '', is_correct: false },
@@ -182,29 +380,6 @@ const QuizManage = () => {
             ];
         }
         setNewQuestion({ ...newQuestion, question_type: type, options });
-    };
-
-    const handleMaterialUpload = (e) => setMaterialFile(e.target.files[0]);
-
-    const uploadMaterial = async () => {
-        if (!materialFile) return;
-        setUploadingMaterial(true);
-        setMaterialStatus('Uploading...');
-
-        const formData = new FormData();
-        formData.append('material', materialFile);
-
-        try {
-            await teacherAPI.uploadMaterial(quizId, formData);
-            setMaterialStatus('Material uploaded successfully!');
-            fetchQuiz();
-            setMaterialFile(null);
-        } catch (error) {
-            console.error('Material upload failed:', error);
-            setMaterialStatus('Upload failed. Try a smaller file or different format.');
-        } finally {
-            setUploadingMaterial(false);
-        }
     };
 
     if (loading) return (
@@ -223,101 +398,72 @@ const QuizManage = () => {
             <p className="text-red-600 mb-6">{error}</p>
             <div className="space-y-4">
                 <button
-                    onClick={() => { setError(null); setLoading(true); fetchQuiz(); fetchClasses(); }}
+                    onClick={() => { setError(null); setLoading(true); fetchQuiz(); }}
                     className="btn bg-red-600 hover:bg-red-700 text-white px-8 py-2 rounded-lg"
                 >
                     Retry Loading
                 </button>
-                <div className="text-sm text-red-500 bg-white/50 p-4 rounded-lg border border-red-100">
-                    <p className="font-bold mb-1">Teacher Tip:</p>
-                    <p>If you just added the "Classes" feature, please make sure you ran the migration script by opening your terminal and typing:</p>
-                    <code className="block mt-2 p-2 bg-gray-900 text-gray-100 rounded font-mono">php migrate_classes.php</code>
-                </div>
             </div>
+            <AlertModal
+                isOpen={alertConfig.isOpen}
+                onClose={closeAlert}
+                title={alertConfig.title}
+                message={alertConfig.message}
+                type={alertConfig.type}
+                buttonText={alertConfig.buttonText}
+            />
         </div>
     );
 
     if (!quiz) return <div className="text-center py-12">Quiz not found</div>;
 
-
     return (
         <div className="space-y-8 pb-12">
-            <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Manage Quiz: {quiz.title}</h1>
-                <div className="flex space-x-3 items-center">
-                    {quiz.status === 'draft' && (() => {
-                        const hasQuestions = quiz.questions?.length > 0;
-                        const hasClasses = selectedClasses.length > 0;
-                        const isReady = hasQuestions && hasClasses;
-
-                        return (
-                            <div className="flex flex-col items-end">
-                                {!isReady && (
-                                    <span className="text-[10px] font-bold text-red-500 mb-1 uppercase">
-                                        {!hasQuestions && !hasClasses ? "Add questions & select class" :
-                                            !hasQuestions ? "Add questions first" : "Select a class first"}
-                                    </span>
-                                )}
-                                <button
-                                    onClick={() => updateStatus('active')}
-                                    disabled={!isReady}
-                                    className={`btn font-bold px-6 py-2 rounded-lg shadow-lg transition-all ${isReady
-                                        ? 'bg-green-600 hover:bg-green-700 text-white'
-                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300'
-                                        }`}
-                                >
-                                    ACTIVATE QUIZ
-                                </button>
-                            </div>
-                        );
-                    })()}
-                    {quiz.status === 'active' && (() => {
-                        const hasQuestions = quiz.questions?.length > 0;
-                        const hasClasses = selectedClasses.length > 0;
-                        const isReady = hasQuestions && hasClasses;
-
-                        return (
-                            <div className="flex flex-col items-end">
-                                {!isReady && (
-                                    <span className="text-[10px] font-bold text-red-500 mb-1 uppercase">
-                                        Quiz setup incomplete
-                                    </span>
-                                )}
-                                <button
-                                    onClick={() => updateStatus('started')}
-                                    disabled={!isReady}
-                                    className={`btn font-bold px-8 py-2 rounded-lg shadow-lg transition-all ${isReady
-                                        ? 'bg-indigo-600 hover:bg-indigo-700 text-white animate-bounce'
-                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed border-gray-300'
-                                        }`}
-                                >
-                                    START QUIZ NOW
-                                </button>
-                            </div>
-                        );
-                    })()}
-                    {quiz.status === 'started' && (
-                        <div className="px-4 py-2 bg-green-100 text-green-800 rounded-lg font-bold border border-green-200">
-                            QUIZ IN PROGRESS
+            <AlertModal
+                isOpen={alertConfig.isOpen}
+                onClose={closeAlert}
+                title={alertConfig.title}
+                message={alertConfig.message}
+                type={alertConfig.type}
+                buttonText={alertConfig.buttonText}
+            />
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <div className="flex items-center gap-4 mb-2">
+                        <div className="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl">
+                            <ClipboardDocumentListIcon className="h-10 w-10 text-indigo-600 dark:text-indigo-400" />
                         </div>
-                    )}
-                    {quiz.status === 'finished' && (
-                        <div className="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg font-bold border border-gray-200">
-                            QUIZ FINISHED
-                        </div>
-                    )}
-                    <Link to={`/teacher/quiz/${quizId}/results`} className="btn btn-primary flex items-center">
-                        <ChartBarIcon className="h-5 w-5 mr-2" />
-                        View Live Results
-                    </Link>
+                        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                            Manage Quiz: <span className="text-indigo-600">{quiz.title}</span>
+                        </h1>
+                    </div>
+                    <p className="text-slate-500 font-semibold uppercase tracking-widest text-[11px] mt-2">
+                        CONFIGURE AND MONITOR YOUR EXAM IN REAL-TIME
+                    </p>
                 </div>
+
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left Column: Info & Uploads */}
-                <div className="space-y-6 lg:col-span-1">
-                    {/* Info Card */}
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+            {/* Tab Switcher */}
+            <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
+                {['overview', 'questions', 'live'].map((tab) => (
+                    <button
+                        key={tab}
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-6 py-2 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${activeTab === tab
+                            ? 'bg-white dark:bg-gray-700 text-indigo-600 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                    >
+                        {tab}
+                    </button>
+                ))}
+            </div>
+
+            <div className="grid grid-cols-1 gap-6">
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                    <div className="bg-white dark:bg-gray-800 shadow rounded-xl p-6 w-full">
                         <h2 className="text-lg font-medium mb-4">Quiz Information</h2>
                         <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
                             <p className="flex justify-between">
@@ -339,138 +485,12 @@ const QuizManage = () => {
                                     Quiz is <b>Active</b>. Students can now enter their ID and wait for you to start the exam.
                                 </p>
                             )}
-
-                            {quiz.material_url && (
-                                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-                                    <p className="font-bold mb-2">Study Material:</p>
-                                    <a
-                                        href={`http://localhost/online-quiz-exam-system/backend${quiz.material_url}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-indigo-600 hover:text-indigo-800 flex items-center"
-                                    >
-                                        <DocumentIcon className="h-5 w-5 mr-1" />
-                                        View Material
-                                    </a>
-                                </div>
-                            )}
                         </div>
                     </div>
+                )}
 
-
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 border-2 border-indigo-200">
-                        <div className="flex justify-between items-start mb-4">
-                            <div>
-                                <h2 className="text-lg font-bold flex items-center text-indigo-700">
-                                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse mr-2"></div>
-                                    Waiting Room & Progress
-                                </h2>
-                                <p className="text-[10px] text-gray-500 font-bold uppercase mt-1">
-                                    {waitingStudents.length} / {quiz.allowed_students_count || 0} Students Joined
-                                </p>
-                            </div>
-                            <div className="flex flex-col items-end space-y-1 text-[10px] uppercase font-bold text-gray-400">
-                                <span className="text-orange-500">Waiting: {waitingStudents.filter(s => s.status === 'waiting').length}</span>
-                                <span className="text-blue-500">Doing: {waitingStudents.filter(s => s.status === 'in_progress').length}</span>
-                                <span className="text-green-600">Done: {waitingStudents.filter(s => s.status === 'submitted').length}</span>
-                            </div>
-                        </div>
-                        <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                            {waitingStudents.length > 0 ? (
-                                waitingStudents.map((s, idx) => (
-                                    <div key={idx} className="flex justify-between items-center text-sm p-2 bg-gray-50 dark:bg-gray-700 rounded border border-gray-100 dark:border-gray-600 transition-all hover:shadow-sm">
-                                        <div className="flex flex-col">
-                                            <span className="font-medium text-gray-900 dark:text-gray-100">{s.name}</span>
-                                            <span className="text-gray-500 text-[10px]">{s.student_id}</span>
-                                        </div>
-                                        {getStatusBadge(s.status)}
-                                    </div>
-                                ))
-                            ) : (
-                                <p className="text-center text-gray-500 text-sm italic py-4">Waiting for students to join...</p>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Invalid Entry Log */}
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                        <h2 className="text-lg font-medium mb-4 text-red-600">Failed Entry Attempts</h2>
-                        <div className="space-y-2 text-xs">
-                            {invalidEntries.length > 0 ? (
-                                invalidEntries.map((e, idx) => (
-                                    <div key={idx} className="p-2 border-b border-gray-100 flex justify-between">
-                                        <span className="font-mono">{e.student_id_attempt}</span>
-                                        <span className="text-gray-400">{new Date(e.created_at).toLocaleTimeString()}</span>
-                                    </div>
-                                ))
-                            ) : (
-                                <p className="text-gray-400 italic">No failed attempts logged.</p>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 border-2 border-green-100">
-                        <h2 className="text-lg font-bold mb-4 flex items-center text-green-700">
-                            <AcademicCapIcon className="h-5 w-5 mr-2" />
-                            Class Access Control
-                        </h2>
-                        <div className="space-y-3">
-                            <p className="text-xs text-gray-500 mb-2">Select which classes are allowed to enter this quiz.</p>
-                            {classes.length > 0 ? (
-                                classes.map((c) => (
-                                    <label key={c.id} className="flex items-center p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors">
-                                        <input
-                                            type="checkbox"
-                                            className="h-4 w-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                                            checked={selectedClasses.includes(c.id)}
-                                            onChange={() => handleClassToggle(c.id)}
-                                        />
-                                        <div className="ml-3">
-                                            <span className="text-sm font-bold block">{c.name}</span>
-                                            <span className="text-[10px] text-gray-400 font-medium uppercase">{c.section || 'No Section'} • {c.academic_year}</span>
-                                        </div>
-                                    </label>
-                                ))
-                            ) : (
-                                <div className="text-center py-4">
-                                    <p className="text-xs text-gray-400 italic mb-3">No classes created yet.</p>
-                                    <Link to="/teacher/classes" className="text-xs font-bold text-indigo-600 hover:underline">
-                                        + Create My First Class
-                                    </Link>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Upload Material */}
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                        <h2 className="text-lg font-medium mb-4 flex items-center">
-                            <CloudArrowUpIcon className="h-5 w-5 mr-2" />
-                            Upload Study Material
-                        </h2>
-                        <p className="text-xs text-gray-500 mb-2">PDF, DOCX, PPTX, Images</p>
-                        <div className="space-y-4">
-                            <input
-                                type="file"
-                                onChange={handleMaterialUpload}
-                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                            />
-                            <button
-                                onClick={uploadMaterial}
-                                disabled={!materialFile || uploadingMaterial}
-                                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 ${(!materialFile || uploadingMaterial) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                                <ArrowUpTrayIcon className="h-5 w-5 mr-2" />
-                                {uploadingMaterial ? 'Uploading...' : 'Upload Material'}
-                            </button>
-                            {materialStatus && <p className="text-sm text-center text-gray-600">{materialStatus}</p>}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Right Column: Questions & Students */}
-                <div className="lg:col-span-2 space-y-6">
-                    {/* Questions List */}
+                {/* Questions Tab */}
+                {activeTab === 'questions' && (
                     <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-lg font-medium flex items-center">
@@ -478,162 +498,436 @@ const QuizManage = () => {
                                 Questions ({quiz.questions?.length || 0})
                             </h2>
                             <button
-                                onClick={() => setShowAddForm(!showAddForm)}
-                                className={`btn btn-sm flex items-center ${showAddForm ? 'bg-gray-100 text-gray-600' : 'bg-indigo-600 text-white'}`}
+                                onClick={() => setShowAddForm(true)}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
                             >
-                                {showAddForm ? 'Cancel' : (
-                                    <>
-                                        <PlusIcon className="h-4 w-4 mr-1" />
-                                        Add Question
-                                    </>
-                                )}
+                                <PlusIcon className="h-4 w-4 mr-2" />
+                                Add Question
                             </button>
                         </div>
 
-                        {showAddForm && (
-                            <form onSubmit={handleAddQuestion} className="mb-8 p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border-2 border-indigo-100 dark:border-indigo-900/50 space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label>
-                                        <select
-                                            className="w-full p-2 text-sm border rounded-lg"
-                                            value={newQuestion.question_type}
-                                            onChange={(e) => handleTypeChange(e.target.value)}
-                                        >
-                                            <option value="multiple_choice">Multiple Choice</option>
-                                            <option value="true_false">True / False</option>
-                                            <option value="short_answer">Short Answer</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Points</label>
-                                        <input
-                                            type="number"
-                                            className="w-full p-2 text-sm border rounded-lg"
-                                            min="1"
-                                            value={newQuestion.points}
-                                            onChange={(e) => setNewQuestion({ ...newQuestion, points: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Question Text</label>
-                                    <textarea
-                                        className="w-full p-2 text-sm border rounded-lg"
-                                        rows="2"
-                                        placeholder="Enter question text..."
-                                        required
-                                        value={newQuestion.question_text}
-                                        onChange={(e) => setNewQuestion({ ...newQuestion, question_text: e.target.value })}
-                                    />
-                                </div>
-
-                                {newQuestion.question_type === 'multiple_choice' && (
-                                    <div className="space-y-2">
-                                        <label className="block text-xs font-bold text-gray-500 uppercase">Options (Select the correct one)</label>
-                                        {newQuestion.options.map((opt, i) => (
-                                            <div key={opt.id} className="flex items-center space-x-2">
-                                                <input
-                                                    type="radio"
-                                                    name="new_correct"
-                                                    checked={opt.is_correct}
-                                                    onChange={() => updateNewQuestionOption(opt.id, 'is_correct', true)}
-                                                />
-                                                <input
-                                                    type="text"
-                                                    className="flex-1 p-2 text-sm border rounded-lg"
-                                                    placeholder={`Option ${i + 1}`}
-                                                    required
-                                                    value={opt.option_text}
-                                                    onChange={(e) => updateNewQuestionOption(opt.id, 'option_text', e.target.value)}
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {newQuestion.question_type === 'true_false' && (
-                                    <div className="flex space-x-4">
-                                        {newQuestion.options.map(opt => (
-                                            <label key={opt.id} className="flex items-center space-x-2 cursor-pointer">
-                                                <input
-                                                    type="radio"
-                                                    name="new_correct"
-                                                    checked={opt.is_correct}
-                                                    onChange={() => updateNewQuestionOption(opt.id, 'is_correct', true)}
-                                                />
-                                                <span className="text-sm">{opt.option_text}</span>
-                                            </label>
-                                        ))}
-                                    </div>
-                                )}
-
-                                <button
-                                    type="submit"
-                                    disabled={addingQuestion}
-                                    className="w-full btn bg-indigo-600 text-white font-bold py-2 rounded-lg"
-                                >
-                                    {addingQuestion ? 'Adding...' : 'Save Question'}
-                                </button>
-                            </form>
-                        )}
-                        <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+                        <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
                             {quiz.questions && quiz.questions.length > 0 ? (
                                 quiz.questions.map((q, index) => (
-                                    <div key={q.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <span className="font-medium text-indigo-600">Question {index + 1}</span>
-                                            <span className="text-xs font-semibold px-2 py-1 bg-gray-100 rounded text-gray-600 uppercase">{q.question_type.replace('_', ' ')}</span>
+                                    <div
+                                        key={q.id}
+                                        onClick={() => toggleQuestion(q.id)}
+                                        className={`border rounded-xl p-3 transition-all cursor-pointer ${expandedQuestions.has(q.id)
+                                            ? 'border-indigo-200 bg-indigo-50/30 dark:bg-indigo-900/10 shadow-sm'
+                                            : 'border-gray-100 dark:border-gray-700 hover:border-indigo-100 dark:hover:border-indigo-800 hover:bg-gray-50/50 dark:hover:bg-gray-700/30'
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-center mb-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded">Q{index + 1}</span>
+                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{q.question_type.replace('_', ' ')}</span>
+                                                <span className="text-[10px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded uppercase tracking-tighter">{q.points} PTS</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={(e) => handleUpdateClick(e, q)}
+                                                    className="p-1.5 hover:bg-white dark:hover:bg-gray-800 rounded-lg text-gray-400 hover:text-indigo-600 transition-all active:scale-95"
+                                                    title="Edit Question"
+                                                >
+                                                    <PencilSquareIcon className="h-4 w-4" />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => handleDeleteClick(e, q)}
+                                                    className="p-1.5 hover:bg-white dark:hover:bg-gray-800 rounded-lg text-gray-400 hover:text-red-500 transition-all active:scale-95"
+                                                    title="Delete Question"
+                                                >
+                                                    <TrashIcon className="h-4 w-4" />
+                                                </button>
+                                            </div>
                                         </div>
-                                        <p className="text-gray-900 dark:text-white mb-2">{q.question_text}</p>
-                                        <div className="text-xs text-gray-500 flex justify-between">
-                                            <span>Points: {q.points}</span>
-                                            {/* Show options preview if needed */}
+
+                                        <p className="text-sm text-gray-900 dark:text-gray-100 font-bold leading-tight line-clamp-2">{q.question_text}</p>
+
+                                        {/* Expanded Answers View */}
+                                        {expandedQuestions.has(q.id) && (
+                                            <div className="mt-3 space-y-1.5 border-t border-gray-100 dark:border-gray-700 pt-3">
+                                                {q.options && q.options.length > 0 ? (
+                                                    q.options.map((opt) => (
+                                                        <div
+                                                            key={opt.id}
+                                                            className={`p-2 rounded-lg text-xs border flex items-center justify-between ${opt.is_correct
+                                                                ? 'bg-green-50/50 border-green-100 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300'
+                                                                : 'bg-white dark:bg-gray-800 border-gray-50 dark:border-gray-700 text-gray-500'
+                                                                }`}
+                                                        >
+                                                            <span className="font-medium">{opt.option_text}</span>
+                                                            {opt.is_correct && (
+                                                                <span className="text-[9px] font-black bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                                                                    Correct
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <div className="text-xs text-gray-400 italic py-1">
+                                                        {q.question_type === 'short_answer'
+                                                            ? 'Short Answer Question - Manual Grading required'
+                                                            : 'No options defined'}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div className="mt-2 flex justify-end">
+                                            <span className="text-[10px] font-bold text-indigo-500/60 uppercase tracking-widest group-hover:text-indigo-600 transition-colors">
+                                                {expandedQuestions.has(q.id) ? 'Collapse' : 'View Answers'}
+                                            </span>
                                         </div>
                                     </div>
                                 ))
                             ) : (
-                                <p className="text-gray-500 italic text-center py-4">No questions added yet.</p>
+                                <div className="text-center py-12 bg-gray-50/50 dark:bg-gray-900/20 rounded-2xl border-2 border-dashed border-gray-100 dark:border-gray-800">
+                                    <DocumentTextIcon className="h-12 w-12 text-gray-200 mx-auto mb-3" />
+                                    <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No questions added yet</p>
+                                </div>
                             )}
                         </div>
                     </div>
+                )}
 
-                    {/* Allowed Students List */}
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                        <h2 className="text-lg font-medium mb-4 flex items-center">
-                            <UserGroupIcon className="h-5 w-5 mr-2" />
-                            Allowed Students ({quiz.allowed_students_count || 0})
-                        </h2>
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                                <thead className="bg-gray-50 dark:bg-gray-700">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student ID</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                    {quiz.allowed_students && quiz.allowed_students.length > 0 ? (
-                                        quiz.allowed_students.map((student) => (
-                                            <tr key={student.id}>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">{student.name}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.student_id}</td>
-                                            </tr>
-                                        ))
-                                    ) : (
-                                        <tr>
-                                            <td colSpan="2" className="px-6 py-4 text-center text-sm text-gray-500">No students allowed yet. Upload a roster.</td>
-                                        </tr>
+                {/* Live Tab - Monitoring Board */}
+                {activeTab === 'live' && (
+                    <div className="space-y-8">
+                        {/* Live Header Controls */}
+
+                        {/* Stats Widgets */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                            {[
+                                {
+                                    label: 'Total Joined',
+                                    val: statsOverview.total,
+                                    icon: UsersIcon,
+                                    color: 'text-indigo-600',
+                                    bg: 'bg-indigo-50/50 dark:bg-indigo-900/10',
+                                    border: 'border-indigo-100 dark:border-indigo-800'
+                                },
+                                {
+                                    label: 'Live Now',
+                                    val: statsOverview.inProgress,
+                                    icon: BoltIcon,
+                                    color: 'text-orange-500',
+                                    bg: 'bg-orange-50/50 dark:bg-orange-900/10',
+                                    border: 'border-orange-100 dark:border-orange-800'
+                                },
+                                {
+                                    label: 'Finished',
+                                    val: statsOverview.finished,
+                                    icon: CheckBadgeIcon,
+                                    color: 'text-green-500',
+                                    bg: 'bg-green-50/50 dark:bg-green-900/10',
+                                    border: 'border-green-100 dark:border-green-800'
+                                },
+                                {
+                                    label: 'Avg Accuracy',
+                                    val: `${statsOverview.avgAccuracy}%`,
+                                    icon: ChartBarIcon,
+                                    color: 'text-blue-500',
+                                    bg: 'bg-blue-50/50 dark:bg-blue-900/10',
+                                    border: 'border-blue-100 dark:border-blue-800'
+                                },
+                            ].map((s, i) => (
+                                <motion.div
+                                    key={i}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: i * 0.1 }}
+                                    className={`p-6 rounded-2xl shadow-sm border transition-all hover:shadow-md ${s.bg} ${s.border}`}
+                                >
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{s.label}</p>
+                                            <h3 className={`text-3xl font-black ${s.color}`}>{s.val}</h3>
+                                        </div>
+                                        <div className={`p-3 rounded-xl bg-white dark:bg-gray-800 shadow-sm ${s.color}`}>
+                                            <s.icon className="h-6 w-6" />
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            ))}
+                        </div>
+
+                        {/* Search & Filter */}
+                        <div className="flex flex-col md:flex-row justify-between gap-4 items-center">
+                            <div className="relative group w-full max-w-md">
+                                <MagnifyingGlassIcon className="h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors" />
+                                <input
+                                    type="text"
+                                    placeholder="Search student name or ID..."
+                                    className="w-full pl-11 pr-4 py-2.5 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-indigo-500 outline-none transition-all font-medium text-base shadow-sm"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                            <div className="flex items-center space-x-2 w-full md:w-auto">
+                                <FunnelIcon className="h-5 w-5 text-gray-400" />
+                                <select
+                                    className="flex-1 md:w-48 px-4 py-3 bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 rounded-2xl focus:border-indigo-500 outline-none transition-all font-bold text-sm"
+                                    value={statusFilter}
+                                    onChange={(e) => setStatusFilter(e.target.value)}
+                                >
+                                    <option value="all">All Status</option>
+                                    <option value="started">Started</option>
+                                    <option value="in_progress">In Progress</option>
+                                    <option value="finished">Finished</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Live Table */}
+                        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden">
+                            <div className="px-8 py-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50/30 dark:bg-gray-800/20 gap-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(16,185,129,0.4)]" />
+                                    <h2 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-[0.2em]">
+                                        Live Performance Feed
+                                    </h2>
+                                </div>
+
+                                {/* The Control Pattern Pill (Positioned Right) */}
+                                <div className="flex items-center bg-[#0f172a] border border-slate-800 p-1.5 rounded-[2.5rem] shadow-xl gap-6 px-6 h-14">
+
+                                    {/* 1. Digital Timer Unit */}
+                                    <div className="flex items-center gap-3">
+                                        <ClockIcon className="h-6 w-6 text-sky-400" />
+                                        <div className="flex items-center gap-2 font-mono text-2xl font-black text-sky-400 tabular-nums tracking-tighter">
+                                            {quiz.status === 'started' ? (
+                                                <>
+                                                    <span>{Math.floor(remainingTime / 60)}m</span>
+                                                    <span>{remainingTime % 60}s</span>
+                                                </>
+                                            ) : (
+                                                <span className="text-slate-500 text-sm uppercase tracking-widest">{quiz.status}</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* 2. Adjustment Unit (Nested Pill) */}
+                                    {quiz.status === 'started' && (
+                                        <div className="flex items-center bg-slate-800/50 border border-slate-700/50 rounded-2xl px-2 py-1 gap-3">
+                                            <button
+                                                onClick={() => handleTimeAdjustment(-5)}
+                                                disabled={isTimeAdjusting}
+                                                className="p-1.5 hover:bg-slate-700 rounded-xl text-slate-400 hover:text-red-400 transition-all active:scale-95"
+                                            >
+                                                <MinusIcon className="h-5 w-5" />
+                                            </button>
+                                            <div className="w-px h-5 bg-slate-700" />
+                                            <button
+                                                onClick={() => handleTimeAdjustment(5)}
+                                                disabled={isTimeAdjusting}
+                                                className="p-1.5 hover:bg-slate-700 rounded-xl text-slate-400 hover:text-emerald-400 transition-all active:scale-95"
+                                            >
+                                                <PlusIcon className="h-5 w-5" />
+                                            </button>
+                                        </div>
                                     )}
-                                </tbody>
-                            </table>
+
+                                    {/* 3. Global Actions */}
+                                    <div className="flex items-center gap-3 pl-2 border-l border-slate-800">
+                                        {quiz.status === 'draft' && (
+                                            <button
+                                                onClick={() => updateStatus('active')}
+                                                disabled={!quiz.questions?.length}
+                                                className="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white h-11 px-6 rounded-full text-[11px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                                            >
+                                                Activate
+                                            </button>
+                                        )}
+
+                                        {quiz.status === 'active' && (
+                                            <button
+                                                onClick={() => updateStatus('started')}
+                                                className="bg-indigo-500 hover:bg-indigo-600 text-white h-11 px-8 rounded-full text-[11px] font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center gap-2 group"
+                                            >
+                                                <PlayIcon className="w-4 h-4 transition-transform group-hover:scale-125" />
+                                                Start Exam
+                                            </button>
+                                        )}
+
+                                        {quiz.status === 'started' && (
+                                            <button
+                                                onClick={() => updateStatus('finished')}
+                                                title="Terminate Quiz"
+                                                className="w-11 h-11 bg-red-500/10 hover:bg-red-600 border border-red-500/20 text-red-500 hover:text-white rounded-full flex items-center justify-center transition-all duration-300 group shadow-sm"
+                                            >
+                                                <NoSymbolIcon className="h-6 w-6 transition-transform group-hover:scale-110" />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="overflow-x-auto min-h-[400px]">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50/50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-700">
+                                            <th className="pl-10 pr-6 py-5 text-xs font-bold text-gray-500 uppercase tracking-wider text-left">Student</th>
+                                            <th className="px-6 py-5 text-xs font-bold text-gray-500 uppercase tracking-wider text-left">Status</th>
+                                            <th className="px-6 py-5 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Answers</th>
+                                            <th className="px-6 py-5 text-xs font-bold text-gray-500 uppercase tracking-wider text-center">Score %</th>
+                                            <th className="px-6 py-5 text-xs font-bold text-gray-500 uppercase tracking-wider text-left">Progress Performance</th>
+                                            <th className="px-10 py-5 text-xs font-bold text-gray-500 uppercase tracking-wider text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                                        {filteredStats.map((stat) => (
+                                            <tr key={stat.result_id} className={`group hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-all ${stat.status_label === 'Blocked' ? 'opacity-50 grayscale' : ''}`}>
+                                                <td className="pl-10 pr-6 py-5">
+                                                    <div className="flex items-center">
+                                                        <div>
+                                                            <div className="font-bold text-sm text-gray-900 dark:text-gray-100">{stat.name}</div>
+                                                            <div className="text-xs text-gray-400 font-medium">{stat.student_display_id}</div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-5">
+                                                    <div className={`inline-flex items-center text-xs font-bold uppercase tracking-wider ${stat.status_label === 'Finished'
+                                                        ? 'text-emerald-600'
+                                                        : stat.status_label === 'In Progress'
+                                                            ? 'text-blue-600'
+                                                            : stat.status_label === 'Paused'
+                                                                ? 'text-amber-600'
+                                                                : 'text-gray-500'
+                                                        }`}>
+                                                        {stat.status_label}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-5 text-center">
+                                                    <div className="flex items-center justify-center gap-4">
+                                                        <span className="flex items-center gap-1 text-emerald-600 font-bold text-sm" title="Correct">
+                                                            <CheckBadgeIcon className="w-4 h-4" />
+                                                            {stat.correct_count}
+                                                        </span>
+                                                        <span className="flex items-center gap-1 text-red-600 font-bold text-sm" title="Incorrect">
+                                                            <span className="w-4 h-4 flex items-center justify-center font-black text-xs">×</span>
+                                                            {stat.wrong_count}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-5 text-center">
+                                                    <span className={`text-lg font-bold ${stat.percentage >= 80 ? 'text-emerald-600' : 'text-gray-900 dark:text-gray-100'}`}>
+                                                        {stat.percentage}%
+                                                    </span>
+                                                </td>
+                                                <td className="px-6 py-5">
+                                                    <div className="w-full max-w-[140px]">
+                                                        <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wide">
+                                                            <span>Progress</span>
+                                                            <span className={stat.answered_count === quiz.questions_count ? 'text-emerald-500' : ''}>
+                                                                {stat.answered_count}/{quiz.questions_count}
+                                                            </span>
+                                                        </div>
+                                                        <div className="h-1.5 w-full bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                                                            <div
+                                                                style={{ width: `${(stat.answered_count / quiz.questions_count) * 100}%` }}
+                                                                className={`h-full rounded-full transition-all duration-1000 ease-out ${stat.answered_count === quiz.questions_count ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-10 py-6 text-right">
+                                                    <div className="flex items-center justify-end space-x-2">
+                                                        {(stat.status_label === 'In Progress' || stat.status_label === 'Started') && (
+                                                            <button
+                                                                onClick={() => handleStudentControl(stat.result_id, 'pause')}
+                                                                disabled={processingAction === stat.result_id}
+                                                                className="p-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-700 rounded-lg transition-all"
+                                                                title="Pause Student"
+                                                            >
+                                                                <PauseIcon className="h-4 w-4" />
+                                                            </button>
+                                                        )}
+                                                        {stat.status_label === 'Paused' && (
+                                                            <button
+                                                                onClick={() => handleStudentControl(stat.result_id, 'resume')}
+                                                                disabled={processingAction === stat.result_id}
+                                                                className="p-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-all"
+                                                                title="Resume Student"
+                                                            >
+                                                                <PlayIcon className="h-4 w-4" />
+                                                            </button>
+                                                        )}
+                                                        {stat.status_label !== 'Finished' && stat.status_label !== 'Blocked' && (
+                                                            <button
+                                                                onClick={() => handleStudentControl(stat.result_id, 'block')}
+                                                                disabled={processingAction === stat.result_id}
+                                                                className="p-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-all"
+                                                                title="Block Student"
+                                                            >
+                                                                <NoSymbolIcon className="h-4 w-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {filteredStats.length === 0 && (
+                                            <tr>
+                                                <td colSpan="10" className="px-10 py-20 text-center text-gray-400 font-black uppercase tracking-widest italic opacity-50">
+                                                    No matching performance data found
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
+
+            {/* Delete Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={deleteModalOpen}
+                onClose={() => { setDeleteModalOpen(false); }}
+                onConfirm={confirmDelete}
+                title="Delete Question?"
+                message={`Are you sure you want to delete this question? This action cannot be undone.`}
+                isDangerous={true}
+            />
+
+            {/* Update Question Modal */}
+            <UpdateQuestionModal
+                isOpen={updateModalOpen}
+                onClose={() => { setUpdateModalOpen(false); }}
+                onSave={saveUpdate}
+                questionData={selectedQuestion}
+                setQuestionData={setSelectedQuestion}
+                loading={actionLoading}
+            />
+
+            {/* Student Control Confirmation Modal */}
+            <ConfirmationModal
+                isOpen={studentControlModal.isOpen}
+                onClose={() => setStudentControlModal({ isOpen: false, resultId: null, action: null })}
+                onConfirm={() => executeStudentControl(studentControlModal.resultId, studentControlModal.action)}
+                title="Block Student?"
+                message="Are you sure you want to block this student? They will not be able to continue this exam."
+                confirmText="Block Student"
+                isDangerous={true}
+            />
+
+            {/* Add Question Modal */}
+            <AddQuestionModal
+                isOpen={showAddForm}
+                onClose={() => setShowAddForm(false)}
+                onAdd={handleAddQuestion}
+                newQuestion={newQuestion}
+                setNewQuestion={setNewQuestion}
+                addingQuestion={addingQuestion}
+                handleTypeChange={handleTypeChange}
+                updateNewQuestionOption={updateNewQuestionOption}
+                addOption={addOptionToNew}
+                removeOption={removeOptionFromNew}
+            />
         </div>
     );
 };
+
 
 export default QuizManage;

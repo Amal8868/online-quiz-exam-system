@@ -23,7 +23,7 @@ const WaitingRoom = () => {
             try {
                 const response = await studentAPI.getQuizStatus(quizId);
                 const currentStatus = response.data.data.status;
-                // setStatus(currentStatus); // status was unused
+
 
                 if (currentStatus === 'started') {
                     clearInterval(pollInterval);

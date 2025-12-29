@@ -68,6 +68,10 @@ class StudentController extends BaseController {
             $resultModel = new Result();
             $existing = $resultModel->findByStudentAndQuiz($student['id'], $quiz['id']);
             
+            if ($existing && $existing['is_blocked']) {
+                return $this->error('Access Revoked: You have been blocked from this exam by the instructor.', 403);
+            }
+
             if (!$existing) {
                 $resultModel->create([
                     'student_id' => $student['id'],
@@ -119,6 +123,7 @@ class StudentController extends BaseController {
             return $this->success([
                 'status' => $quiz['status'],
                 'start_time' => $quiz['start_time'],
+                'duration_minutes' => $quiz['duration_minutes'],
                 'server_time' => date('Y-m-d H:i:s')
             ]);
         } catch (Exception $e) {
@@ -135,6 +140,9 @@ class StudentController extends BaseController {
             $existing = $resultModel->findByStudentAndQuiz($data['student_db_id'], $data['quiz_id']);
             
             if ($existing) {
+                if ($existing['is_blocked']) {
+                    return $this->error('Access Revoked: You are blocked from this exam.', 403);
+                }
                 if ($existing['status'] === 'submitted') {
                     return $this->error('You have already submitted this exam', 403);
                 }
@@ -198,6 +206,9 @@ class StudentController extends BaseController {
             $questionModel = new Question();
             $questions = $questionModel->getByQuizId($quizId);
             
+            // Randomize question order to prevent cheating
+            shuffle($questions);
+            
             // Remove correct_answer from response for security!
             foreach ($questions as &$q) {
                 unset($q['correct_answer']);
@@ -221,24 +232,86 @@ class StudentController extends BaseController {
             
             $summary = $resultModel->calculateSummary($resultId);
             
-            return $this->success([
+            $response = [
                 'score' => $result['score'],
                 'total_points' => $result['total_points'],
                 'status' => $result['status'],
+                'is_blocked' => (bool)$result['is_blocked'],
                 'total_questions' => $summary['total_questions'],
                 'correct_answers' => $summary['correct_answers']
-            ]);
+            ];
+
+            // Check if any answer corresponds to a short_answer question
+            $db = getDBConnection();
+            // Use LOWER() to ensure case-insensitive comparison
+            $stmt = $db->prepare("
+                SELECT COUNT(*) FROM student_answers sa 
+                JOIN questions q ON sa.question_id = q.id 
+                WHERE sa.result_id = ? AND LOWER(q.question_type) = 'short_answer'
+            ");
+            $stmt->execute([$resultId]);
+            $manualCount = $stmt->fetchColumn();
+            
+            $response['has_manual_grading'] = $manualCount > 0;
+            $response['pending_count'] = $manualCount;
+            
+            
+            return $this->success($response);
             
         } catch (Exception $e) {
             return $this->error($e->getMessage(), 500);
         }
     }
+    public function getAttemptStatus($resultId) {
+        try {
+            $resultModel = new Result();
+            $result = $resultModel->find($resultId);
+            if (!$result) return $this->error('Result not found', 404);
+            
+            return $this->success([
+                'is_paused' => (bool)$result['is_paused'],
+                'is_blocked' => (bool)$result['is_blocked'],
+                'status' => $result['status']
+            ]);
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
+
     public function updateResultStatus($resultId, $data) {
         try {
             $this->validateRequiredFields($data, ['status']);
             $resultModel = new Result();
             $resultModel->update($resultId, ['status' => $data['status']]);
             return $this->success(['status' => $data['status']]);
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
+
+    // Check if any students exist for this teacher's classes
+    public function checkStudentsExist($teacherId) {
+        try {
+            require_once __DIR__ . '/../models/ClassModel.php';
+            $classModel = new ClassModel();
+            
+            // Get all classes for this teacher
+            $classes = $classModel->getTeacherClasses($teacherId);
+            
+            if (empty($classes)) {
+                return $this->success(['has_students' => false, 'student_count' => 0]);
+            }
+            
+            // Count total students across all classes
+            $totalStudents = array_reduce($classes, function($carry, $class) {
+                return $carry + ($class['student_count'] ?? 0);
+            }, 0);
+            
+            return $this->success([
+                'has_students' => $totalStudents > 0,
+                'student_count' => $totalStudents
+            ]);
+            
         } catch (Exception $e) {
             return $this->error($e->getMessage(), 500);
         }

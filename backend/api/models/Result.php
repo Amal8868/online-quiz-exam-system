@@ -3,7 +3,7 @@ require_once __DIR__ . '/Model.php';
 
 class Result extends Model {
     protected $table = 'results';
-    protected $fillable = ['student_id', 'quiz_id', 'score', 'total_points', 'status', 'started_at', 'submitted_at'];
+    protected $fillable = ['student_id', 'quiz_id', 'score', 'total_points', 'status', 'started_at', 'submitted_at', 'is_paused', 'is_blocked'];
 
     public function findByStudentAndQuiz($studentId, $quizId) {
         $stmt = $this->db->prepare("SELECT * FROM {$this->table} WHERE student_id = ? AND quiz_id = ?");
@@ -20,16 +20,36 @@ class Result extends Model {
             
             if (!$question) return false;
             
-            $isCorrect = 0;
+            // 1.5 Check if student is paused or blocked
+            $stmt = $this->db->prepare("SELECT is_paused, is_blocked FROM results WHERE id = ?");
+            $stmt->execute([$resultId]);
+            $res = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($res && ($res['is_paused'] || $res['is_blocked'])) {
+                return false; // Silently fail saving if paused/blocked
+            }
+
             $pointsAwarded = 0;
             $correctAns = $question['correct_answer'];
             
+            // Default to 0 (Wrong) for auto-graded questions, NULL for manual
+            $isCorrect = 0;
+
             if ($question['question_type'] === 'short_answer') {
-                if ($correctAns !== 'MANUAL_GRADING') {
-                    if (trim(strtolower($answer)) === trim(strtolower($correctAns))) {
-                        $isCorrect = 1;
-                        $pointsAwarded = $question['points'];
-                    }
+                if ($correctAns === 'MANUAL_GRADING') {
+                    $isCorrect = null;
+                } elseif (trim(strtolower($answer)) === trim(strtolower($correctAns))) {
+                    $isCorrect = 1;
+                    $pointsAwarded = $question['points'];
+                }
+            } elseif ($question['question_type'] === 'multiple_selection') {
+                // MSQ: exact match of sorted IDs
+                $studentIds = explode(',', (string)$answer);
+                $correctIds = explode(',', (string)$correctAns);
+                sort($studentIds);
+                sort($correctIds);
+                if ($studentIds === $correctIds) {
+                    $isCorrect = 1;
+                    $pointsAwarded = $question['points'];
                 }
             } else {
                 if ((string)$answer === (string)$correctAns) {
@@ -69,7 +89,7 @@ class Result extends Model {
         // 3. Get student stats
         // We order by status (submitted first?), then correct count, then time
         $sql = "SELECT s.id as student_db_id, s.name, s.student_id as student_display_id,
-                r.id as result_id, r.status, r.started_at,
+                r.id as result_id, r.status, r.started_at, r.is_paused, r.is_blocked,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id) as answered_count,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 1) as correct_count,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 0) as wrong_count,
@@ -93,7 +113,11 @@ class Result extends Model {
             $row['percentage'] = $totalQuestions > 0 ? round(($row['correct_count'] / $totalQuestions) * 100, 1) : 0;
             
             // Map status labels
-            if ($row['status'] === 'submitted') {
+            if ((int)$row['is_blocked'] === 1) {
+                $row['status_label'] = 'Blocked';
+            } elseif ((int)$row['is_paused'] === 1) {
+                $row['status_label'] = 'Paused';
+            } elseif ($row['status'] === 'submitted') {
                 $row['status_label'] = 'Finished';
             } else {
                 $row['status_label'] = ((int)$row['answered_count'] === 0) ? 'Started' : 'In Progress';
@@ -150,6 +174,17 @@ class Result extends Model {
                 if (trim(strtolower($studentAns)) === trim(strtolower($correctAns)) && $correctAns !== 'MANUAL_GRADING') {
                     $isCorrect = true;
                 }
+            } elseif ($q['question_type'] === 'multiple_selection') {
+                // MSQ logic: both must match exactly (comma separated IDs)
+                $studentIds = explode(',', (string)$studentAns);
+                $correctIds = explode(',', (string)$correctAns);
+                
+                sort($studentIds);
+                sort($correctIds);
+                
+                if ($studentIds === $correctIds) {
+                    $isCorrect = true;
+                }
             } else {
                 if ((string)$studentAns === (string)$correctAns) {
                     $isCorrect = true;
@@ -187,5 +222,91 @@ class Result extends Model {
         }
         
         return $results;
+    }
+
+    public function getResultsByClassAndQuiz($classId, $quizId) {
+        $sql = "SELECT r.id, r.score, r.status, r.total_points, r.submitted_at, r.started_at, r.is_blocked,
+                       s.name as student_name, s.student_id as student_display_id,
+                       (SELECT COUNT(*) FROM student_answers sa 
+                        JOIN questions q ON sa.question_id = q.id 
+                        WHERE sa.result_id = r.id 
+                        AND q.correct_answer = 'MANUAL_GRADING' 
+                        AND sa.points_awarded = 0) as needs_grading
+                FROM results r 
+                JOIN students s ON r.student_id = s.id 
+                WHERE r.quiz_id = ? AND s.class_id = ?
+                ORDER BY r.submitted_at DESC";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$quizId, $classId]);
+        
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getStudentResultDetails($resultId) {
+        // Get result info
+        $result = $this->find($resultId);
+        if (!$result) return null;
+
+        // Get student info
+        $stmt = $this->db->prepare("SELECT name, student_id FROM students WHERE id = ?");
+        $stmt->execute([$result['student_id']]);
+        $student = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Get answers with question details
+        $sql = "SELECT sa.*, q.question_text, q.question_type, q.options, q.correct_answer as correct_answer_text, q.points as max_points
+                FROM student_answers sa
+                JOIN questions q ON sa.question_id = q.id
+                WHERE sa.result_id = ?
+                ORDER BY q.id ASC";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$resultId]);
+        $answers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'result' => $result,
+            'student' => $student,
+            'answers' => $answers
+        ];
+    }
+
+    public function updateManualGrade($resultId, $questionId, $points) {
+        try {
+            // 0. Validate points against max points
+            $stmt = $this->db->prepare("SELECT points FROM questions WHERE id = ?");
+            $stmt->execute([$questionId]);
+            $maxPoints = $stmt->fetchColumn();
+            
+            if ($points > $maxPoints) {
+                throw new Exception("Score ($points) cannot exceed maximum points ($maxPoints)");
+            }
+
+            $this->db->beginTransaction();
+
+            // 1. Update the student_answer for the specific question
+            $stmt = $this->db->prepare("UPDATE student_answers SET points_awarded = ?, is_correct = ? WHERE result_id = ? AND question_id = ?");
+            
+            // Determine correctness
+            $isCorrect = $points > 0 ? 1 : 0;
+            
+            $stmt->execute([$points, $isCorrect, $resultId, $questionId]);
+
+            // 2. Recalculate total score for the result
+            $stmt = $this->db->prepare("SELECT SUM(points_awarded) FROM student_answers WHERE result_id = ?");
+            $stmt->execute([$resultId]);
+            $newTotalScore = $stmt->fetchColumn() ?: 0;
+
+            // 3. Update result record
+            $this->update($resultId, ['score' => $newTotalScore]);
+
+            $this->db->commit();
+            return true;
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e; // Re-throw to be caught by Controller
+        }
     }
 }

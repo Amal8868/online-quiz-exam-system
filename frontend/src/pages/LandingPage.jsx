@@ -33,16 +33,16 @@ const LandingPage = () => {
       <div className="relative bg-white dark:bg-gray-900 pt-16 pb-20 px-4 sm:px-6 lg:pt-24 lg:pb-28 lg:px-8">
         <div className="relative max-w-7xl mx-auto">
           <div className="text-center">
-            <motion.h1 
+            <motion.h1
               className="text-4xl tracking-tight font-extrabold text-gray-900 dark:text-white sm:text-5xl md:text-6xl"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <span className="block">Engaging Online</span>
-              <span className="block text-primary-600 dark:text-primary-400">Quizzes & Exams</span>
+              <span className="block">Engaging online</span>
+              <span className="block text-primary-600 dark:text-primary-400">Quizzes & exams</span>
             </motion.h1>
-            <motion.p 
+            <motion.p
               className="mt-3 max-w-md mx-auto text-base text-gray-500 dark:text-gray-300 sm:text-lg md:mt-5 md:text-xl md:max-w-3xl"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -51,7 +51,7 @@ const LandingPage = () => {
               Create, distribute, and grade quizzes and exams with ease. Perfect for teachers and students alike.
             </motion.p>
             <div className="mt-5 max-w-md mx-auto sm:flex sm:justify-center md:mt-8">
-              <motion.div 
+              <motion.div
                 className="rounded-md shadow"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -60,10 +60,10 @@ const LandingPage = () => {
                   to="/teacher/register"
                   className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 md:py-4 md:text-lg md:px-10"
                 >
-                  Get Started
+                  Get started
                 </Link>
               </motion.div>
-              <motion.div 
+              <motion.div
                 className="mt-3 rounded-md shadow sm:mt-0 sm:ml-3"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -72,7 +72,7 @@ const LandingPage = () => {
                   to="/join"
                   className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-primary-600 bg-white hover:bg-gray-50 md:py-4 md:text-lg md:px-10"
                 >
-                  Join a Quiz
+                  Join a quiz
                 </Link>
               </motion.div>
             </div>
@@ -128,7 +128,7 @@ const LandingPage = () => {
             <span className="block text-primary-600 dark:text-primary-400">Create your first quiz today.</span>
           </h2>
           <div className="mt-8 flex lg:mt-0 lg:flex-shrink-0">
-            <motion.div 
+            <motion.div
               className="inline-flex rounded-md shadow"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -140,7 +140,7 @@ const LandingPage = () => {
                 Get started
               </Link>
             </motion.div>
-            <motion.div 
+            <motion.div
               className="ml-3 inline-flex rounded-md shadow"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -149,7 +149,7 @@ const LandingPage = () => {
                 to="/teacher/login"
                 className="inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-primary-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
-                Teacher Login
+                Teacher login
               </Link>
             </motion.div>
           </div>
