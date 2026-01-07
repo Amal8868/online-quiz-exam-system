@@ -1,26 +1,34 @@
 <?php
+// This is the "Granddaddy" model! 
+// Instead of writing the same database code over and over for Users, Quizzes, and Results, 
+// I put all the common stuff here. Every other model just "extends" this one.
 require_once __DIR__ . '/../config/config.php';
 
 abstract class Model {
     protected $table;
     protected $primaryKey = 'id';
     protected $db;
-    protected $fillable = [];
+    protected $fillable = []; // This is like a whitelist, only these fields can be saved.
 
     public function __construct() {
+        // As soon as a model is created, it grabs a database connection.
         $this->db = getDBConnection();
     }
 
+    // A quick way to find something by its ID.
     public function find($id) {
         $stmt = $this->db->prepare("SELECT * FROM {$this->table} WHERE {$this->primaryKey} = ?");
         $stmt->execute([$id]);
         return $stmt->fetch();
     }
 
+    // This is a flexible "Get All" function. 
+    // It can filter by conditions, sort, and even handle pagination (limit/offset).
     public function all($conditions = [], $orderBy = '', $limit = null, $offset = null) {
         $sql = "SELECT * FROM {$this->table}";
         $params = [];
         
+        // If we want to filter, like "WHERE status = 'Active'".
         if (!empty($conditions)) {
             $where = [];
             foreach ($conditions as $key => $value) {
@@ -46,8 +54,10 @@ abstract class Model {
         return $stmt->fetchAll();
     }
 
+    // This makes creating new entries super easy. 
+    // I made it use the $fillable array so that hackers can't inject random columns.
     public function create(array $data) {
-        // Filter data to only include fillable fields
+        // Filter data to only include fillable fields.
         $filteredData = array_intersect_key($data, array_flip($this->fillable));
         
         $columns = implode(', ', array_keys($filteredData));
@@ -61,9 +71,10 @@ abstract class Model {
         }
         
         $stmt->execute();
-        return $this->db->lastInsertId();
+        return $this->db->lastInsertId(); // Return the ID of the new thing we just made.
     }
 
+    // Just like create, but for updating existing rows.
     public function update($id, array $data) {
         $filteredData = array_intersect_key($data, array_flip($this->fillable));
         $set = [];
@@ -83,18 +94,22 @@ abstract class Model {
         return $stmt->execute();
     }
 
+    // Delete something forever. Use with caution!
     public function delete($id) {
         $sql = "DELETE FROM {$this->table} WHERE {$this->primaryKey} = ?";
         $stmt = $this->db->prepare($sql);
         return $stmt->execute([$id]);
     }
 
+    // A helper for when I need to write custom SQL queries.
     protected function query($sql, $params = []) {
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt;
     }
 
+    // Transactions are like "Save Points" in a video game. 
+    // If something goes wrong, we can go back to the start.
     protected function beginTransaction() {
         return $this->db->beginTransaction();
     }

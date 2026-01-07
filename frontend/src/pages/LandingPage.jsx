@@ -57,10 +57,10 @@ const LandingPage = () => {
                 whileTap={{ scale: 0.98 }}
               >
                 <Link
-                  to="/teacher/register"
+                  to="/login"
                   className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 md:py-4 md:text-lg md:px-10"
                 >
-                  Get started
+                  Portal Login
                 </Link>
               </motion.div>
               <motion.div
@@ -134,10 +134,10 @@ const LandingPage = () => {
               whileTap={{ scale: 0.95 }}
             >
               <Link
-                to="/teacher/register"
+                to="/login"
                 className="inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700"
               >
-                Get started
+                Portal Login
               </Link>
             </motion.div>
             <motion.div
@@ -146,10 +146,10 @@ const LandingPage = () => {
               whileTap={{ scale: 0.95 }}
             >
               <Link
-                to="/teacher/login"
+                to="/join"
                 className="inline-flex items-center justify-center px-5 py-3 border border-transparent text-base font-medium rounded-md text-primary-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
               >
-                Teacher login
+                Join a quiz
               </Link>
             </motion.div>
           </div>

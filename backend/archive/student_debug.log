@@ -1,9 +1,0 @@
-submitAnswer called with: {"result_id":4,"question_id":8,"answer":2}
-Save Exception: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'answered_at' in 'field list' for Res:4 Q:8
-finishExam called with: {"result_id":4}
-submitAnswer called with: {"result_id":5,"question_id":8,"answer":1}
-Save Exception: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'answered_at' in 'field list' for Res:5 Q:8
-finishExam called with: {"result_id":5}
-submitAnswer called with: {"result_id":6,"question_id":2,"answer":2}
-Save Exception: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'answered_at' in 'field list' for Res:6 Q:2
-finishExam called with: {"result_id":6}

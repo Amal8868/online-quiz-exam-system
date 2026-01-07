@@ -9,29 +9,38 @@ import {
 } from '@heroicons/react/24/outline';
 import { studentAPI } from '../../services/api';
 
+/**
+ * THE EXAM HUB (ExamPage)
+ * 
+ * This is the most important part for students!
+ * It's like a digital exam booklet with a live timer and an "Auto-Save" feature.
+ */
 const ExamPage = () => {
     const navigate = useNavigate();
 
+    // EXAM STATE: Keeping track of questions, answers, and the clock.
     const [quiz, setQuiz] = useState(null);
     const [student, setStudent] = useState(null);
     const [resultId, setResultId] = useState(null);
     const [questions, setQuestions] = useState([]);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [answers, setAnswers] = useState({}); // { questionId: { selectedOptionId, answerText } }
+    const [answers, setAnswers] = useState({}); // Stores answers locally: { questionId: { selectedOptionId, answerText } }
     const [timeLeft, setTimeLeft] = useState(0);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [questionStartTime, setQuestionStartTime] = useState(Date.now());
-    const [timeNotify, setTimeNotify] = useState(null); // { amount: '+5', type: 'increase' }
+    const [timeNotify, setTimeNotify] = useState(null); // Used to show "+5m" when teacher adds time.
     const [isPaused, setIsPaused] = useState(false);
     const [isBlocked, setIsBlocked] = useState(false);
+
+    // REFS: These are like "sticky notes" the component remembers without re-rendering.
     const prevDurationRef = useRef(null);
     const syncLockRef = useRef(false);
     const targetEndTimeRef = useRef(null);
 
-
+    // FINISH LINE: Submitting the exam to the server.
     const handleSubmit = useCallback(async () => {
-        if (submitting || !resultId || isPaused || isBlocked) return;
+        if (submitting || !resultId || isBlocked) return;
         setSubmitting(true);
         try {
             const response = await studentAPI.finishExam({
@@ -39,6 +48,7 @@ const ExamPage = () => {
             });
 
             if (response.data.success) {
+                // Once finished, we send them to their personal Result Page.
                 navigate(`/results/${resultId}`);
             }
         } catch (error) {
@@ -48,7 +58,7 @@ const ExamPage = () => {
         }
     }, [resultId, submitting, navigate, isPaused, isBlocked]);
 
-
+    // MULTIPLE CHOICE SELECTOR: Handles picking one or more answers.
     const handleMSQToggle = (questionId, optionId) => {
         const currentAnswer = (answers[questionId]?.selected_option_id || "").toString();
         let selectedOptions = currentAnswer ? currentAnswer.split(',') : [];
@@ -64,28 +74,30 @@ const ExamPage = () => {
         handleAnswer(questionId, newValue, 'multiple_selection');
     };
 
+    /**
+     * THE AUTO-SAVER (handleAnswer):
+     * Every time a student clicks an answer, we save it to the database immediately!
+     * This way, if their computer crashes or they lose internet, their progress is safe.
+     */
     const handleAnswer = async (questionId, value, type) => {
         if (isPaused || isBlocked) return;
         const now = Date.now();
-        const timeTaken = Math.round((now - questionStartTime) / 1000);
+        const timeTaken = Math.round((now - questionStartTime) / 1000); // Track how long they spent on this question.
 
         const answerPayload = type === 'short_answer'
             ? { answer_text: value, question_id: questionId }
             : { selected_option_id: value, question_id: questionId };
 
+        // 1. Update the UI immediately so it feels fast.
         setAnswers(prev => ({
             ...prev,
             [questionId]: answerPayload
         }));
 
+        // 2. Secretly send the answer to the server in the background.
         if (resultId) {
             try {
-                let answerStr = '';
-                if (type === 'short_answer') {
-                    answerStr = value;
-                } else {
-                    answerStr = value; // Option ID
-                }
+                let answerStr = (type === 'short_answer') ? value : value;
 
                 await studentAPI.submitAnswer({
                     result_id: resultId,
@@ -99,6 +111,7 @@ const ExamPage = () => {
         }
     };
 
+    // TIME FORMATTER: Converts seconds (e.g., 3600) to pretty text (e.g., 60:00).
     const formatTime = (seconds) => {
         if (!seconds) return "0:00";
         const mins = Math.floor(seconds / 60);
@@ -106,11 +119,11 @@ const ExamPage = () => {
         return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
     };
 
-    // Load session data
+    // INITIALIZATION: When the student first enters the exam room.
     useEffect(() => {
         const sessionData = localStorage.getItem('student_session');
         if (!sessionData) {
-            navigate('/join');
+            navigate('/join'); // No ID, no entry!
             return;
         }
         const parsed = JSON.parse(sessionData);
@@ -118,13 +131,13 @@ const ExamPage = () => {
         setQuiz(parsed.quiz);
     }, [navigate]);
 
-    // Fetch questions and start exam
+    // FETCH QUESTIONS: Getting the exam paper from the server.
     useEffect(() => {
         if (!quiz || !student) return;
 
         const initExam = async () => {
             try {
-                // 1. Start Exam Session
+                // 1. Tell the server: "I'm starting my exam now!"
                 const startRes = await studentAPI.startExam({
                     quiz_id: quiz.id,
                     student_db_id: student.id
@@ -134,22 +147,27 @@ const ExamPage = () => {
                     setResultId(startRes.data.data.result_id);
                 }
 
-                // 2. Fetch Questions
+                // 2. Download the questions.
                 const qRes = await studentAPI.getExamQuestions(quiz.id);
                 if (qRes.data.success) {
                     setQuestions(qRes.data.data);
-                    prevDurationRef.current = quiz.time_limit; // Initial duration
+                    prevDurationRef.current = quiz.time_limit;
 
-                    // 3. Precision Synchronized Timer Calculation
+                    /**
+                     * THE PRECISION TIMER SYNC:
+                     * We don't just use the computer's clock because it might be wrong.
+                     * We calculate the DIFFERENCE between the server's time and our time 
+                     * to find the exact moment the exam should end.
+                     */
                     const totalDurationSeconds = quiz.time_limit * 60;
 
                     if (quiz.start_time && quiz.server_time) {
                         const startTime = new Date(quiz.start_time.replace(/-/g, '/')).getTime();
                         const serverTime = new Date(quiz.server_time.replace(/-/g, '/')).getTime();
 
-                        // Calculate clock offset (Server - Client)
+                        // Offset = Server Time - My Computer Time.
                         const offset = serverTime - Date.now();
-                        // Target absolute end time
+                        // End Time = Start + Duration - Offset.
                         targetEndTimeRef.current = startTime + (totalDurationSeconds * 1000) - offset;
 
                         const remaining = Math.max(0, Math.ceil((targetEndTimeRef.current - Date.now()) / 1000));
@@ -157,7 +175,7 @@ const ExamPage = () => {
 
                         if (remaining <= 0) {
                             setLoading(false);
-                            handleSubmit();
+                            handleSubmit(); // If they joined too late, the exam auto-finishes!
                             return;
                         }
                     } else {
@@ -167,15 +185,13 @@ const ExamPage = () => {
 
                 setLoading(false);
 
-                // 4. Update status to 'in_progress'
+                // Mark their status as 'in_progress' so the teacher can see they are working.
                 try {
                     const resId = startRes.data.data.result_id;
                     if (resId) {
                         await studentAPI.updateResultStatus(resId, 'in_progress');
                     }
-                } catch (e) {
-                    console.error("Failed to update status to in_progress", e);
-                }
+                } catch (e) { }
             } catch (error) {
                 console.error('Error initializing exam:', error);
                 alert('Failed to load exam. ' + (error.response?.data?.message || ''));
@@ -187,7 +203,7 @@ const ExamPage = () => {
         }
     }, [quiz, student, loading, handleSubmit]);
 
-    // Precision Timer Ticker
+    // THE TICKER: Decreases the timer every 1 second.
     useEffect(() => {
         if (loading || isPaused || isBlocked) return;
 
@@ -196,7 +212,7 @@ const ExamPage = () => {
                 const remaining = Math.max(0, Math.ceil((targetEndTimeRef.current - Date.now()) / 1000));
                 setTimeLeft(remaining);
                 if (remaining <= 0) {
-                    handleSubmit();
+                    handleSubmit(); // Time is up! Pen down!
                 }
             }
         };
@@ -207,13 +223,19 @@ const ExamPage = () => {
         return () => clearInterval(timer);
     }, [loading, isPaused, isBlocked, handleSubmit]);
 
-    // Timer Synchronization with Server
+    /**
+     * HEARTBEAT SYNC:
+     * Every 5 seconds, we "check-in" with the server to see:
+     * 1. Did the teacher pause the exam?
+     * 2. Did I get blocked?
+     * 3. Did the teacher add more time for everyone?
+     */
     useEffect(() => {
         if (loading || !quiz || !resultId) return;
 
         const syncTimer = async () => {
             try {
-                // Check Attempt Status (Pause/Block)
+                // Check if the teacher clicked "Pause" or "Kick Student".
                 const statusRes = await studentAPI.getAttemptStatus(resultId);
                 if (statusRes.data.success) {
                     const statusData = statusRes.data.data;
@@ -221,10 +243,11 @@ const ExamPage = () => {
                     if (statusData.is_blocked) {
                         setIsBlocked(true);
                         localStorage.removeItem('student_session');
-                        return; // Stop further syncing
+                        return;
                     }
                 }
 
+                // Check if the Global Quiz Settings changed (like adding time).
                 const res = await studentAPI.getQuizStatus(quiz.id);
                 if (res.data.success) {
                     const serverQuiz = res.data.data;
@@ -239,7 +262,6 @@ const ExamPage = () => {
                         const startTime = new Date(serverQuiz.start_time.replace(/-/g, '/')).getTime();
                         const serverTime = new Date(serverQuiz.server_time.replace(/-/g, '/')).getTime();
 
-                        // Update Target End Time with single clock offset
                         const offset = serverTime - Date.now();
                         targetEndTimeRef.current = startTime + (totalDurationSeconds * 1000) - offset;
 
@@ -247,7 +269,7 @@ const ExamPage = () => {
 
                         if (syncLockRef.current) return;
 
-                        // Check for duration change to notify student
+                        // DURATION BOOST: If the teacher adds 5 mins, we show a cool popup!
                         if (prevDurationRef.current !== null && serverQuiz.duration_minutes !== prevDurationRef.current) {
                             const diff = serverQuiz.duration_minutes - prevDurationRef.current;
                             setTimeNotify({
@@ -257,9 +279,8 @@ const ExamPage = () => {
                             prevDurationRef.current = serverQuiz.duration_minutes;
                             syncLockRef.current = true;
 
-                            // DELAYED UPDATE: Wait 2 seconds before updating the actual timer
+                            // We wait 2 seconds before updating the numbers so the student can see the "+5m" badge.
                             setTimeout(() => {
-                                // Re-calculate correct time after the 2s delay
                                 const nowSync = async () => {
                                     try {
                                         const resRel = await studentAPI.getQuizStatus(quiz.id);
@@ -268,12 +289,9 @@ const ExamPage = () => {
                                             const tDur = sQ.duration_minutes * 60;
                                             const sT = new Date(sQ.start_time.replace(/-/g, '/')).getTime();
                                             const sTC = new Date(sQ.server_time.replace(/-/g, '/')).getTime();
-
                                             const off = sTC - Date.now();
                                             targetEndTimeRef.current = sT + (tDur * 1000) - off;
-
-                                            const rem = Math.max(0, Math.ceil((targetEndTimeRef.current - Date.now()) / 1000));
-                                            setTimeLeft(rem);
+                                            setTimeLeft(Math.max(0, Math.ceil((targetEndTimeRef.current - Date.now()) / 1000)));
                                         }
                                     } catch (e) { }
                                     syncLockRef.current = false;
@@ -286,7 +304,7 @@ const ExamPage = () => {
                             prevDurationRef.current = serverQuiz.duration_minutes;
                             setTimeLeft(calculatedTimeLeft);
                         } else {
-                            // Normal sync (no duration change), update immediately if drift > 5s
+                            // Subtle correction if the local clock drifts more than 5 seconds.
                             setTimeLeft(current => {
                                 if (Math.abs(calculatedTimeLeft - current) > 5) {
                                     return calculatedTimeLeft;
@@ -301,13 +319,14 @@ const ExamPage = () => {
             }
         };
 
-        const syncInterval = setInterval(syncTimer, 5000); // Increased frequency to 5 seconds
+        const syncInterval = setInterval(syncTimer, 5000);
         return () => clearInterval(syncInterval);
-    }, [loading, quiz, resultId, handleSubmit]); // Removed timeLeft from dependencies
+    }, [loading, quiz, resultId, handleSubmit]);
 
 
     if (loading) return <div className="flex justify-center items-center h-screen">Loading Exam...</div>;
 
+    // BLOCKED SCREEN: If the teacher kicks the student from the room.
     if (isBlocked) {
         return (
             <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
@@ -334,7 +353,8 @@ const ExamPage = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-12">
-            {/* Pause Overlay */}
+
+            {/* PAUSE OVERLAY: When the teacher stops the clock for everyone. */}
             <AnimatePresence>
                 {isPaused && (
                     <motion.div
@@ -355,6 +375,7 @@ const ExamPage = () => {
                             <p className="text-gray-500 dark:text-gray-400 font-medium mb-8">
                                 Your exam has been temporarily suspended by the instructor. Please wait.
                             </p>
+                            {/* Animated dot loaders */}
                             <div className="flex items-center justify-center space-x-2">
                                 <span className="w-2 h-2 rounded-full bg-red-600 animate-bounce [animation-delay:-0.3s]"></span>
                                 <span className="w-2 h-2 rounded-full bg-red-600 animate-bounce [animation-delay:-0.15s]"></span>
@@ -365,13 +386,15 @@ const ExamPage = () => {
                 )}
             </AnimatePresence>
 
-            {/* Header */}
+            {/* HEADER: Title and the ticking Clock. */}
             <div className="bg-white dark:bg-gray-800 shadow-sm sticky top-0 z-20 transition-all duration-300">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex justify-between items-center">
                     <div>
                         <h1 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">{quiz.title}</h1>
                         <p className="text-sm text-gray-500 dark:text-gray-400">Question {currentQuestionIndex + 1} of {questions.length}</p>
                     </div>
+
+                    {/* THE CLOCK UI: Changes color to Red when time is running out! */}
                     <div className={`relative px-4 py-2 flex items-center space-x-2 text-xl font-mono font-bold transition-all duration-500 ${timeNotify?.type === 'increase'
                         ? 'text-green-600 scale-110 font-black'
                         : timeLeft < 60 ? 'text-red-600 animate-pulse' : 'text-primary-600'
@@ -379,6 +402,7 @@ const ExamPage = () => {
                         <ClockIcon className={`h-6 w-6 ${timeNotify?.type === 'increase' ? 'animate-bounce' : ''}`} />
                         <span>{formatTime(timeLeft)}</span>
 
+                        {/* Floating Time Badge (e.g. +5m) */}
                         <AnimatePresence>
                             {timeNotify && (
                                 <motion.div
@@ -397,7 +421,7 @@ const ExamPage = () => {
             </div>
 
 
-            {/* Question Area */}
+            {/* THE EXAM PAPER (Question Area) */}
             <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {currentQuestion && (
                     <motion.div
@@ -413,6 +437,7 @@ const ExamPage = () => {
                             </h2>
 
                             <div className="space-y-4">
+                                {/* RENDERING OPTIONS: We change the layout based on the question type (MCQ vs Short Answer). */}
                                 {(currentQuestion.question_type === 'multiple_choice' || currentQuestion.question_type === 'true_false' || currentQuestion.question_type === 'mcq') && (
                                     <div className="space-y-3">
                                         {currentQuestion.options && currentQuestion.options.map((option) => (
@@ -484,6 +509,7 @@ const ExamPage = () => {
                             </div>
                         </div>
 
+                        {/* NAVIGATION BUTTONS */}
                         <div className="mt-8 flex justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
                             <button
                                 onClick={() => {
@@ -519,6 +545,7 @@ const ExamPage = () => {
                     </motion.div>
                 )}
 
+                {/* THE QUESTION MAP (Small numbered buttons at the bottom) */}
                 <div className="mt-8 grid grid-cols-5 sm:grid-cols-10 gap-2">
                     {questions.map((q, idx) => (
                         <button

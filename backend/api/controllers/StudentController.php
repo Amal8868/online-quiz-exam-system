@@ -1,4 +1,6 @@
 <?php
+// This is the "Student Help Desk". 
+// It handles everything a student does: joining a room, starting the exam, and picking answers.
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/Student.php';
 require_once __DIR__ . '/../models/Quiz.php';
@@ -7,7 +9,7 @@ require_once __DIR__ . '/../models/Question.php';
 
 class StudentController extends BaseController {
 
-    // 1. Verify and enter room
+    // 1. "Can I come in?" - This verifies the room code and student ID.
     public function enterExam($data) {
         try {
             $this->validateRequiredFields($data, ['room_code', 'student_id']);
@@ -15,7 +17,7 @@ class StudentController extends BaseController {
             $roomCode = strtoupper(trim($data['room_code']));
             $studentIdStr = trim($data['student_id']);
             
-            // Find quiz
+            // First, find the quiz they are looking for.
             $quizModel = new Quiz();
             $quiz = $quizModel->findByRoomCode($roomCode);
             
@@ -23,7 +25,7 @@ class StudentController extends BaseController {
                 return $this->error('Invalid room code', 404);
             }
 
-            // Auto-finish check
+            // AUTO-FINISH: If this student is late and the quiz already ended, we mark it finished.
             if ($quiz['status'] === 'started' && !empty($quiz['start_time'])) {
                 $duration = (int)($quiz['duration_minutes'] ?? 30);
                 $endTime = strtotime($quiz['start_time'] . " +{$duration} minutes");
@@ -33,12 +35,13 @@ class StudentController extends BaseController {
                 }
             }
             
+            // If the quiz isn't "Started" or "Active", we can't let them in.
             if ($quiz['status'] !== 'active' && $quiz['status'] !== 'started') {
                 $this->logInvalidEntry($quiz['id'], $studentIdStr);
                 return $this->error('Exam is not yet active or has already finished.', 403);
             }
             
-            // Find Student record (find by string ID)
+            // Check if the student actually exists in our local database.
             $studentModel = new Student();
             $student = $studentModel->findByStudentId($studentIdStr);
             
@@ -46,7 +49,7 @@ class StudentController extends BaseController {
                 return $this->error('Student ID not found in system', 404); 
             }
 
-            // Verify Class Access
+            // ROSTER CHECK: Does this student actually have permission to take this quiz?
             $allowedClasses = $quizModel->getAllowedClasses($quiz['id']);
             if (!empty($allowedClasses)) {
                 $isAllowed = false;
@@ -60,18 +63,19 @@ class StudentController extends BaseController {
                 }
                 
                 if (!$isAllowed) {
-                    return $this->error('Access Denied: You are not in the allowed class for this quiz. Allowed: ' . implode(', ', $allowedClassNames), 403);
+                    return $this->error('Access Denied: You are not in the allowed class for this quiz.', 403);
                 }
             }
 
-            // Create/Update result record with 'waiting' status if just joining
+            // SECURITY: If the teacher blocked them earlier, they can't re-join.
             $resultModel = new Result();
             $existing = $resultModel->findByStudentAndQuiz($student['id'], $quiz['id']);
             
             if ($existing && $existing['is_blocked']) {
-                return $this->error('Access Revoked: You have been blocked from this exam by the instructor.', 403);
+                return $this->error('Access Revoked: You have been blocked by the instructor.', 403);
             }
 
+            // If it's their first time joining, we create a 'waiting' record for them.
             if (!$existing) {
                 $resultModel->create([
                     'student_id' => $student['id'],
@@ -83,7 +87,7 @@ class StudentController extends BaseController {
 
             return $this->success([
                 'student_name' => $student['name'],
-                'student_id' => $student['student_id'], // string ID
+                'student_id' => $student['student_id'], 
                 'quiz_title' => $quiz['title'],
                 'quiz_id' => $quiz['id'],
                 'quiz_status' => $quiz['status'],
@@ -98,19 +102,20 @@ class StudentController extends BaseController {
         }
     }
 
+    // A simple log to help teachers see who tried to join with a wrong code.
     private function logInvalidEntry($quizId, $studentIdAttempt) {
         $db = getDBConnection();
         $stmt = $db->prepare("INSERT INTO invalid_entries (quiz_id, student_id_attempt) VALUES (?, ?)");
         $stmt->execute([$quizId, $studentIdAttempt]);
     }
     
+    // Periodically checks if the quiz status changed (e.g., from 'active' to 'started').
     public function getQuizStatus($quizId) {
         try {
             $quizModel = new Quiz();
             $quiz = $quizModel->find($quizId);
             if (!$quiz) return $this->error('Quiz not found', 404);
 
-            // Auto-finish check
             if ($quiz['status'] === 'started' && !empty($quiz['start_time'])) {
                 $duration = (int)($quiz['duration_minutes'] ?? 30);
                 $endTime = strtotime($quiz['start_time'] . " +{$duration} minutes");
@@ -131,7 +136,7 @@ class StudentController extends BaseController {
         }
     }
     
-    // 2. Start Exam (Create Result record)
+    // 2. "I'm ready!" - This starts the timer and lets the student see questions.
     public function startExam($data) {
         try {
             $this->validateRequiredFields($data, ['quiz_id', 'student_db_id']);
@@ -141,16 +146,16 @@ class StudentController extends BaseController {
             
             if ($existing) {
                 if ($existing['is_blocked']) {
-                    return $this->error('Access Revoked: You are blocked from this exam.', 403);
+                    return $this->error('Access Revoked: You are blocked.', 403);
                 }
                 if ($existing['status'] === 'submitted') {
-                    return $this->error('You have already submitted this exam', 403);
+                    return $this->error('You have already submitted this exam.', 403);
                 }
-                // Resuming
+                // If they refreshing the page, we just "Resume" where they left off.
                 return $this->success(['result_id' => $existing['id'], 'status' => 'resumed']);
             }
             
-            // Create new result
+            // Create the official "Started" record with the current time.
             $resultId = $resultModel->create([
                 'student_id' => $data['student_db_id'],
                 'quiz_id' => $data['quiz_id'],
@@ -165,7 +170,7 @@ class StudentController extends BaseController {
         }
     }
     
-    // 3. Submit Answer
+    // 3. "Saving my answer..." - Sends the chosen option to the server.
     public function submitAnswer($data) {
         try {
             $this->validateRequiredFields($data, ['result_id', 'question_id', 'answer']);
@@ -185,7 +190,7 @@ class StudentController extends BaseController {
         }
     }
     
-    // 4. Finish Exam
+    // 4. "I'm Done!" - Finalizes the attempt.
     public function finishExam($data) {
          try {
             $this->validateRequiredFields($data, ['result_id']);
@@ -200,16 +205,16 @@ class StudentController extends BaseController {
         }   
     }
     
-    // 5. Get Questions
+    // 5. "Give me the questions" - Randomizes the order so every student gets a different sequence!
     public function getExamQuestions($quizId) {
          try {
             $questionModel = new Question();
             $questions = $questionModel->getByQuizId($quizId);
             
-            // Randomize question order to prevent cheating
+            // ANTI-CHEATING: Shuffle the questions so they aren't in the same order as your neighbor!
             shuffle($questions);
             
-            // Remove correct_answer from response for security!
+            // SECURITY: Never send the correct_answer to the browser! Only the server knows that.
             foreach ($questions as &$q) {
                 unset($q['correct_answer']);
             }
@@ -221,6 +226,7 @@ class StudentController extends BaseController {
         }
     }
     
+    // Fetches the student's result summary (score, correct answers, etc.)
     public function getResult($resultId) {
         try {
             $resultModel = new Result();
@@ -241,9 +247,8 @@ class StudentController extends BaseController {
                 'correct_answers' => $summary['correct_answers']
             ];
 
-            // Check if any answer corresponds to a short_answer question
+            // If there's a "Short Answer", tell the student it's waiting for manual grading.
             $db = getDBConnection();
-            // Use LOWER() to ensure case-insensitive comparison
             $stmt = $db->prepare("
                 SELECT COUNT(*) FROM student_answers sa 
                 JOIN questions q ON sa.question_id = q.id 
@@ -255,13 +260,14 @@ class StudentController extends BaseController {
             $response['has_manual_grading'] = $manualCount > 0;
             $response['pending_count'] = $manualCount;
             
-            
             return $this->success($response);
             
         } catch (Exception $e) {
             return $this->error($e->getMessage(), 500);
         }
     }
+
+    // Checks if the instructor has paused or blocked this specific student attempt.
     public function getAttemptStatus($resultId) {
         try {
             $resultModel = new Result();
@@ -278,6 +284,7 @@ class StudentController extends BaseController {
         }
     }
 
+    // Updates the current status (e.g., from 'waiting' to 'in_progress').
     public function updateResultStatus($resultId, $data) {
         try {
             $this->validateRequiredFields($data, ['status']);
@@ -289,20 +296,18 @@ class StudentController extends BaseController {
         }
     }
 
-    // Check if any students exist for this teacher's classes
+    // Helpful check to see if a teacher has any students to assign quizzes to.
     public function checkStudentsExist($teacherId) {
         try {
             require_once __DIR__ . '/../models/ClassModel.php';
             $classModel = new ClassModel();
             
-            // Get all classes for this teacher
             $classes = $classModel->getTeacherClasses($teacherId);
             
             if (empty($classes)) {
                 return $this->success(['has_students' => false, 'student_count' => 0]);
             }
             
-            // Count total students across all classes
             $totalStudents = array_reduce($classes, function($carry, $class) {
                 return $carry + ($class['student_count'] ?? 0);
             }, 0);

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeftIcon,
-    ArrowUpTrayIcon,
     UserIcon,
     MagnifyingGlassIcon,
     TrashIcon
@@ -16,7 +15,6 @@ const ClassDetails = () => {
     const [students, setStudents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [uploading, setUploading] = useState(false);
 
     const fetchDetails = useCallback(async () => {
         try {
@@ -36,44 +34,6 @@ const ClassDetails = () => {
         fetchDetails();
     }, [fetchDetails]);
 
-    const handleFileUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        setUploading(true);
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            try {
-                const text = event.target.result;
-                const rows = text.split('\n');
-                const parsedStudents = [];
-
-                rows.forEach((row, index) => {
-                    const cols = row.split(',').map(c => c.trim());
-                    if (cols.length >= 2 && index > 0) { // Skip header
-                        const [studentId, name] = cols;
-                        if (studentId && name) {
-                            parsedStudents.push({ student_id: studentId, name: name });
-                        }
-                    }
-                });
-
-                if (parsedStudents.length === 0) {
-                    alert('No valid student data found in CSV. Format: student_id,name');
-                    return;
-                }
-
-                await teacherAPI.uploadClassStudents(id, parsedStudents);
-                alert('Students uploaded successfully!');
-                fetchDetails();
-            } catch (error) {
-                alert('Upload failed: ' + (error.response?.data?.message || error.message));
-            } finally {
-                setUploading(false);
-            }
-        };
-        reader.readAsText(file);
-    };
 
     const filteredStudents = students.filter(s =>
         s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -103,23 +63,6 @@ const ClassDetails = () => {
                                 {classInfo?.section || 'No Section'}
                             </span>
                         </div>
-                    </div>
-                    <div className="relative">
-                        <input
-                            type="file"
-                            accept=".csv"
-                            onChange={handleFileUpload}
-                            className="hidden"
-                            id="csv-upload"
-                            disabled={uploading}
-                        />
-                        <label
-                            htmlFor="csv-upload"
-                            className={`btn btn-primary flex items-center cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
-                        >
-                            <ArrowUpTrayIcon className="h-5 w-5 mr-2" />
-                            {uploading ? 'Uploading...' : 'Import Roster (CSV)'}
-                        </label>
                     </div>
                 </div>
             </div>

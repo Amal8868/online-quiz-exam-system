@@ -2,15 +2,69 @@
 require_once __DIR__ . '/../config/config.php';
 
 class AuthMiddleware {
-    public static function authenticate($requiredRole = null) {
-        // Get the Authorization header
+    public static function authenticate($requiredRoles = null) {
+        // 1. Check Session
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        
+        if (isset($_SESSION['user_id'])) {
+            // Check Role
+            if ($requiredRoles) {
+                // Normalize required roles
+                if (!is_array($requiredRoles)) {
+                    $requiredRoles = [$requiredRoles];
+                }
+                
+                if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $requiredRoles)) {
+                    http_response_code(403);
+                    echo json_encode(['error' => 'Forbidden - Insufficient permissions (Session)']);
+                    exit();
+                }
+            }
+            // Return session data as object to match previous return type
+            return (object)[
+                'id' => $_SESSION['user_id'],
+                'role' => $_SESSION['role'],
+                'email' => $_SESSION['email'] ?? ''
+            ];
+        }
+
+        // 2. Check Cookie (Remember Me)
+        if (isset($_COOKIE['user_login'])) {
+            try {
+                $decoded = self::validateJWT($_COOKIE['user_login']);
+                
+                // Refresh Session
+                $_SESSION['user_id'] = $decoded->id;
+                $_SESSION['role'] = $decoded->role;
+                $_SESSION['email'] = $decoded->email ?? '';
+                
+                 if ($requiredRoles) {
+                    if (!is_array($requiredRoles)) {
+                        $requiredRoles = [$requiredRoles];
+                    }
+                    if (!in_array($decoded->role, $requiredRoles)) {
+                        http_response_code(403);
+                        echo json_encode(['error' => 'Forbidden - Insufficient permissions (Cookie)']);
+                        exit();
+                    }
+                }
+                return $decoded;
+            } catch (Exception $e) {
+                // Invalid cookie, ignore and fall through to Token check
+                setcookie('user_login', '', time() - 3600, '/'); // Delete invalid cookie
+            }
+        }
+
+        // 3. Check Bearer Token (Legacy/API Support)
         $headers = getallheaders();
         $authHeader = $headers['Authorization'] ?? '';
         
         // Check if the Authorization header exists and starts with 'Bearer '
         if (empty($authHeader) || strpos($authHeader, 'Bearer ') !== 0) {
             http_response_code(401);
-            echo json_encode(['error' => 'Unauthorized - No token provided']);
+            echo json_encode(['error' => 'Unauthorized - Please login first']);
             exit();
         }
         
@@ -19,15 +73,20 @@ class AuthMiddleware {
         
         try {
             // Decode and verify the token
-            $decoded = self::verifyJWT($token);
+            $decoded = self::validateJWT($token);
             
             // Check if the token has expired
             if (isset($decoded->exp) && $decoded->exp < time()) {
                 throw new Exception('Token has expired');
             }
             
-            // Check if the user has the required role
-            if ($requiredRole && (!isset($decoded->role) || $decoded->role !== $requiredRole)) {
+            // Normalize required roles to array
+            if ($requiredRoles && !is_array($requiredRoles)) {
+                $requiredRoles = [$requiredRoles];
+            }
+ 
+            // Check if the user has one of the required roles
+            if ($requiredRoles && (!isset($decoded->role) || !in_array($decoded->role, $requiredRoles))) {
                 http_response_code(403);
                 echo json_encode(['error' => 'Forbidden - Insufficient permissions']);
                 exit();
@@ -61,7 +120,7 @@ class AuthMiddleware {
         return "$base64Header.$base64Payload.$base64Signature";
     }
     
-    private static function verifyJWT($token) {
+    public static function validateJWT($token) {
         $tokenParts = explode('.', $token);
         
         if (count($tokenParts) !== 3) {

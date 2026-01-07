@@ -1,10 +1,12 @@
 <?php
+// This is the "Classroom Manager". 
+// It handles creating classes, adding students to them, and organizing the school data.
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/ClassModel.php';
 require_once __DIR__ . '/../models/Student.php';
 
 class ClassController extends BaseController {
-    // Get all classes for a teacher
+    // 1. "Show me my classes" - Fetches all groups belonging to the teacher.
     public function getClasses($teacherId) {
         try {
             $classModel = new ClassModel();
@@ -16,7 +18,7 @@ class ClassController extends BaseController {
         }
     }
     
-    // Create a new class
+    // 2. "New Class" - Creates a new section like "Grade 10 - Section A".
     public function createClass($teacherId, $data) {
         try {
             $this->validateRequiredFields($data, ['name', 'academic_year']);
@@ -36,14 +38,17 @@ class ClassController extends BaseController {
         }
     }
 
-    // Update class details
+    // 3. "Fix details" - Updates class info if there was a typo in the name or year.
     public function updateClass($teacherId, $classId, $data) {
         try {
             $classModel = new ClassModel();
             $class = $classModel->find($classId);
+            
+            // SECURITY: Make sure this teacher actually owns the class they are trying to edit!
             if (!$class || $class['teacher_id'] != $teacherId) {
                 return $this->error('Class not found or unauthorized', 404);
             }
+            
             $allowed = ['name', 'section', 'academic_year'];
             $updateData = [];
             foreach ($allowed as $field) {
@@ -51,9 +56,11 @@ class ClassController extends BaseController {
                     $updateData[$field] = $data[$field];
                 }
             }
+            
             if (empty($updateData)) {
                 return $this->error('No valid fields to update', 400);
             }
+            
             $classModel->update($classId, $updateData);
             return $this->success(['message' => 'Class updated']);
         } catch (Exception $e) {
@@ -61,7 +68,7 @@ class ClassController extends BaseController {
         }
     }
     
-    // Get class details with students
+    // 4. "Who is in this class?" - Lists all the students enrolled in a specific section.
     public function getClassDetails($teacherId, $classId) {
         try {
             $classModel = new ClassModel();
@@ -72,7 +79,8 @@ class ClassController extends BaseController {
             return $this->error($e->getMessage(), $e->getCode() ?: 500);
         }
     }
-    // Import students into a class
+
+    // 5. "Add many students" - This handles importing a list of students specifically into THIS class.
     public function uploadStudents($teacherId, $classId, $data) {
         try {
             $this->validateRequiredFields($data, ['students']);
@@ -87,7 +95,8 @@ class ClassController extends BaseController {
         }
     }
 
-    // Global Import (Extracts classes from CSV)
+    // 6. "The Master Import" - This is powerful! It looks at a whole CSV, 
+    // creates classes on the fly, and puts students in them.
     public function importGlobal($teacherId, $data) {
         try {
             $this->validateRequiredFields($data, ['students']);

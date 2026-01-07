@@ -1,4 +1,6 @@
 <?php
+// This is the "General Manager" for everything Quiz-related.
+// It handles creating quizzes, adding questions, and even live monitoring.
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/Quiz.php';
 require_once __DIR__ . '/../models/Question.php';
@@ -7,6 +9,8 @@ require_once __DIR__ . '/../models/Result.php';
 
 class QuizController extends BaseController {
     
+    // I made this to generate those cool 6-digit codes like "A1B2C3".
+    // It keeps guessing until it finds one that isn't already being used.
     private function generateRoomCode() {
         $db = getDBConnection();
         do {
@@ -21,21 +25,20 @@ class QuizController extends BaseController {
         return $roomCode;
     }
 
+    // Fetches all quizzes for a specific teacher.
     public function getQuizzes($teacherId) {
         $quiz = new Quiz();
         $quizzes = $quiz->all(['teacher_id' => $teacherId], 'created_at DESC');
         return $this->success($quizzes);
     }
 
+    // Filters quizzes by class. Helpful for the "Results by Class" view.
     public function getQuizzesByClass($teacherId, $classId) {
         try {
-            // Verify class belongs to teacher (optional but recommended)
-            // For now, just fetch filtering by teacher_id in the model if needed, 
-            // but the class/quiz relationship is already built on teacher data.
             $quizModel = new Quiz();
             $quizzes = $quizModel->getByClassId($classId);
             
-            // Filter to ensure only teacher's quizzes are returned if there's any cross-over
+            // Security: Only show quizzes that belong to THIS teacher.
             $filtered = array_filter($quizzes, function($q) use ($teacherId) {
                 return $q['teacher_id'] == $teacherId;
             });
@@ -46,15 +49,16 @@ class QuizController extends BaseController {
         }
     }
     
+    // Deletes a quiz for good.
     public function deleteQuiz($teacherId, $quizId) {
         try {
             $quizModel = new Quiz();
-            $quiz = $quizModel->find($quizId); // Verify ownership
+            $quiz = $quizModel->find($quizId); 
             if (!$quiz || $quiz['teacher_id'] != $teacherId) {
                 throw new Exception('Quiz not found or unauthorized', 404);
             }
 
-            if ($quizModel->deleteQuiz($quizId)) { // Uses the new method
+            if ($quizModel->deleteQuiz($quizId)) {
                  return $this->success(['message' => 'Quiz deleted successfully']);
             } else {
                  throw new Exception('Failed to delete quiz');
@@ -64,6 +68,7 @@ class QuizController extends BaseController {
         }
     }
 
+    // The "Start Here" function for creating a new quiz.
     public function createQuiz($teacherId, $data) {
         $db = getDBConnection();
         try {
@@ -71,8 +76,10 @@ class QuizController extends BaseController {
             
             $db->beginTransaction();
             
+            // 1. Generate that unique room code.
             $roomCode = $this->generateRoomCode();
             
+            // 2. Create the quiz record.
             $quiz = new Quiz();
             $quizId = $quiz->create([
                 'teacher_id' => $teacherId,
@@ -84,7 +91,7 @@ class QuizController extends BaseController {
                 'status' => 'draft'
             ]);
 
-            // Handle integrated class selection
+            // 3. If the teacher picked some classes, link them to the quiz.
             if (!empty($data['class_ids']) && is_array($data['class_ids'])) {
                 $stmt = $db->prepare("INSERT INTO quiz_classes (quiz_id, class_id) VALUES (?, ?)");
                 foreach ($data['class_ids'] as $classId) {
@@ -101,6 +108,7 @@ class QuizController extends BaseController {
         }
     }
     
+    // Gets everything about a quiz: the title, the questions, and who is allowed to take it.
     public function getQuiz($teacherId, $quizId) {
         $quizModel = new Quiz();
         $quiz = $quizModel->find($quizId);
@@ -109,7 +117,8 @@ class QuizController extends BaseController {
             return $this->error('Quiz not found', 404);
         }
 
-        // Auto-finish check
+        // AUTO-FINISH LOGIC: 
+        // If the quiz is "Started" but the time is up, we automatically mark it as "Finished".
         if ($quiz['status'] === 'started' && !empty($quiz['start_time'])) {
             $duration = (int)($quiz['duration_minutes'] ?? 30);
             $endTime = strtotime($quiz['start_time'] . " +{$duration} minutes");
@@ -119,29 +128,28 @@ class QuizController extends BaseController {
             }
         }
         
+        // Grab the questions.
         $questionModel = new Question();
         $questions = $questionModel->getByQuizId($quizId);
-
         $quiz['questions'] = $questions;
         
+        // Calculate total points.
         $totalPoints = 0;
         foreach ($questions as $q) {
             $totalPoints += $q['points'] ?? 0;
         }
         $quiz['total_points'] = $totalPoints;
         
-        // Add allowed classes
+        // Find which classes are allowed.
         $allowedClasses = $quizModel->getAllowedClasses($quizId);
         $quiz['allowed_classes'] = $allowedClasses;
         
-        // Calculate total students from assigned classes if using class-based enrollment
+        // Count how many students are invited.
         $totalClassStudents = 0;
         foreach ($allowedClasses as $class) {
             $totalClassStudents += (int)($class['student_count'] ?? 0);
         }
         
-        // If we have class-based students, use that as the enrollment count
-        // Otherwise fallback to the specific allowed students count (roster)
         if ($totalClassStudents > 0) {
             $quiz['allowed_students_count'] = $totalClassStudents;
         } else {
@@ -150,13 +158,13 @@ class QuizController extends BaseController {
             $quiz['allowed_students_count'] = count($allowed);
         }
         
-        // Add server time for timer synchronization
+        // Server time helps the React frontend sync the countdown timer perfectly.
         $quiz['server_time'] = date('Y-m-d H:i:s');
         
         return $this->success($quiz);
     }
 
-    // Update quiz details
+    // Simple update for titles or descriptions.
     public function updateQuiz($teacherId, $quizId, $data) {
         try {
             $quizModel = new Quiz();
@@ -164,7 +172,6 @@ class QuizController extends BaseController {
             if (!$quiz || $quiz['teacher_id'] != $teacherId) {
                 return $this->error('Quiz not found or unauthorized', 404);
             }
-            // Allowed fields for update
             $allowed = ['title', 'description', 'duration_minutes', 'timer_type', 'status', 'room_code'];
             $updateData = [];
             foreach ($allowed as $field) {
@@ -182,6 +189,7 @@ class QuizController extends BaseController {
         }
     }
 
+    // Change which classes can see this quiz.
     public function setQuizClasses($teacherId, $quizId, $data) {
         try {
             $quizModel = new Quiz();
@@ -196,11 +204,10 @@ class QuizController extends BaseController {
             $db = getDBConnection();
             $db->beginTransaction();
 
-            // Clear existing
+            // Clear the old list and add the new one.
             $stmt = $db->prepare("DELETE FROM quiz_classes WHERE quiz_id = ?");
             $stmt->execute([$quizId]);
 
-            // Add new
             if (!empty($classIds)) {
                 $stmt = $db->prepare("INSERT INTO quiz_classes (quiz_id, class_id) VALUES (?, ?)");
                 foreach ($classIds as $classId) {
@@ -216,6 +223,7 @@ class QuizController extends BaseController {
         }
     }
     
+    // Adding a question to the quiz.
     public function addQuestion($teacherId, $quizId, $data) {
         try {
             $quizModel = new Quiz();
@@ -246,6 +254,7 @@ class QuizController extends BaseController {
         }
     }
 
+    // Process a CSV file to add students to the quiz "Roster".
     public function uploadRoster($teacherId, $quizId, $files) {
         try {
             $studentModel = new Student();
@@ -271,15 +280,12 @@ class QuizController extends BaseController {
             
             while (($data = fgetcsv($handle, 1000, ",")) !== FALSE) {
                 $row++;
-                // Skip header row if it contains "student_id" or "name"
                 if ($row === 1) {
                      if (strtolower(trim($data[0])) === 'student_id' || strtolower(trim($data[1])) === 'name') {
                          continue;
                      }
                 }
                 
-                // Expecting Col 0: Student ID, Col 1: Name
-                // Basic validation: must have at least 2 columns
                 if (count($data) < 2) continue;
                 
                 $studentIdStr = trim($data[0]);
@@ -301,6 +307,7 @@ class QuizController extends BaseController {
         }
     }
     
+    // Gets the final results after the quiz is over.
     public function getResults($teacherId, $quizId) {
         $quizModel = new Quiz();
         $quiz = $quizModel->find($quizId);
@@ -316,6 +323,7 @@ class QuizController extends BaseController {
     }
 
 
+    // This activates or starts the quiz for students.
     public function setStatus($teacherId, $quizId, $data) {
         try {
             $quizModel = new Quiz();
@@ -327,13 +335,12 @@ class QuizController extends BaseController {
             $this->validateRequiredFields($data, ['status']);
             $newStatus = $data['status'];
             
-            // Validate status transitions
             $allowed = ['draft', 'active', 'started', 'finished'];
             if (!in_array($newStatus, $allowed)) {
                 return $this->error('Invalid status', 400);
             }
 
-            // Validation for Start/Activate
+            // Security: We won't let a teacher start a quiz if it doesn't have at least one question!
             if ($newStatus === 'active' || $newStatus === 'started') {
                 $questionModel = new Question();
                 $questionsCount = count($questionModel->getByQuizId($quizId));
@@ -361,8 +368,7 @@ class QuizController extends BaseController {
         }
     }
 
-
-
+    // Fetches real-time stats for the "Live Board".
     public function getLiveProgress($teacherId, $quizId) {
         try {
             $quizModel = new Quiz();
@@ -380,6 +386,7 @@ class QuizController extends BaseController {
         }
     }
 
+    // This is a life-saver! It allows teachers to add more time while the quiz is running.
     public function adjustTime($teacherId, $quizId, $data) {
         try {
             $quizModel = new Quiz();
@@ -397,7 +404,7 @@ class QuizController extends BaseController {
 
             $newDuration = (int)$quiz['duration_minutes'] + $adjustment;
             if ($newDuration < 1) {
-                $newDuration = 1; // Minimum 1 minute
+                $newDuration = 1; 
             }
 
             $quizModel->update($quizId, ['duration_minutes' => $newDuration]);
@@ -411,6 +418,7 @@ class QuizController extends BaseController {
         }
     }
 
+    // Special controls to Pause, Resume, or Block a specific student.
     public function controlStudent($teacherId, $resultId, $data) {
         try {
             $this->validateRequiredFields($data, ['action']);

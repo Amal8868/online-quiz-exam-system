@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { Dialog, Transition } from '@headlessui/react';
 import {
     AcademicCapIcon,
     PlusIcon,
@@ -8,7 +9,6 @@ import {
     ClockIcon,
     MagnifyingGlassIcon,
     FunnelIcon,
-
     PlayIcon,
     PauseIcon,
     NoSymbolIcon,
@@ -19,7 +19,8 @@ import {
     BoltIcon,
     CheckBadgeIcon,
     ClipboardDocumentListIcon,
-    ChartBarIcon
+    ChartBarIcon,
+    ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
 import ConfirmationModal from '../../components/ConfirmationModal';
@@ -27,26 +28,35 @@ import UpdateQuestionModal from '../../components/UpdateQuestionModal';
 import AddQuestionModal from '../../components/AddQuestionModal';
 import AlertModal from '../../components/AlertModal';
 
+/**
+ * THE QUIZ CONTROL TOWER (QuizManage)
+ * 
+ * This is where the magic happens for the Teacher! 
+ * It's a "3-in-1" screen:
+ * 1. OVERVIEW: Setup and status.
+ * 2. QUESTIONS: The exam builder.
+ * 3. LIVE: Real-time spying... I mean, monitoring of students!
+ */
 const QuizManage = () => {
     const { quizId } = useParams();
 
-
+    // STATE: These variables "remember" everything about this quiz while the page is open.
     const [quiz, setQuiz] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTab] = useState('overview'); // Which part of the tower are we in?
     const [error, setError] = useState(null);
 
-    // Live Monitoring State
+    // LIVE MONITORING: Keeping track of students currently taking the quiz.
     const [liveStats, setLiveStats] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
-    const [processingAction, setProcessingAction] = useState(null); // result_id being processed
+    const [processingAction, setProcessingAction] = useState(null);
 
-    // Time Management State
+    // THE TICKING CLOCK: State for the global exam timer.
     const [remainingTime, setRemainingTime] = useState(0);
     const [isTimeAdjusting, setIsTimeAdjusting] = useState(false);
 
-    // Add Question State
+    // BUILDING QUESTIONS: Blank states for when we add a new question.
     const [showAddForm, setShowAddForm] = useState(false);
     const [newQuestion, setNewQuestion] = useState({
         question_text: '',
@@ -60,8 +70,9 @@ const QuizManage = () => {
         ]
     });
     const [addingQuestion, setAddingQuestion] = useState(false);
-    const [expandedQuestions, setExpandedQuestions] = useState(new Set());
+    const [expandedQuestions, setExpandedQuestions] = useState(new Set()); // Which questions have their answers "visible" in the list?
 
+    // TOGGLE: Open/Close the answer view for a specific question.
     const toggleQuestion = (questionId) => {
         setExpandedQuestions(prev => {
             const newSet = new Set(prev);
@@ -74,26 +85,27 @@ const QuizManage = () => {
         });
     };
 
-    // Question CRUD State
+    // MODAL HANDLERS: Pop-ups for confirmation and editing.
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [updateModalOpen, setUpdateModalOpen] = useState(false);
-
+    const [timeAdjustModalOpen, setTimeAdjustModalOpen] = useState(false);
+    const [adjustAmount, setAdjustAmount] = useState(5);
     const [selectedQuestion, setSelectedQuestion] = useState(null);
     const [actionLoading, setActionLoading] = useState(false);
 
-    // Student Control Modal State
+    // STUDENT CONTROL: State for the "Block Student" pop-up.
     const [studentControlModal, setStudentControlModal] = useState({
         isOpen: false,
         resultId: null,
         action: null
     });
 
-    // Alert Modal State
+    // ALERT SYSTEM: A pretty way to show success/error messages.
     const [alertConfig, setAlertConfig] = useState({
         isOpen: false,
         title: '',
         message: '',
-        type: 'success', // 'error' or 'success'
+        type: 'success',
         buttonText: 'Okay'
     });
 
@@ -157,7 +169,14 @@ const QuizManage = () => {
         }
     };
 
+    /**
+     * FETCH DATA (fetchQuiz, fetchMonitoring):
+     * These functions "call the server" to get the latest info.
+     * fetchQuiz: Gets the questions and settings.
+     * fetchMonitoring: Gets the live scores of students.
+     */
     const fetchQuiz = useCallback(async () => {
+        if (!quizId) return;
         try {
             const response = await teacherAPI.getQuiz(quizId);
             setQuiz(response.data.data);
@@ -169,6 +188,7 @@ const QuizManage = () => {
     }, [quizId, loading]);
 
     const fetchMonitoring = useCallback(async () => {
+        if (!quizId) return;
         try {
             const res = await teacherAPI.getLiveMonitoring(quizId);
             setLiveStats(res.data.data || []);
@@ -177,22 +197,27 @@ const QuizManage = () => {
         }
     }, [quizId]);
 
+    // UPDATE STATUS: e.g. "Activate" or "Finish" the quiz.
     const updateStatus = async (newStatus) => {
         try {
             await teacherAPI.updateQuizStatus(quizId, newStatus);
             fetchQuiz();
         } catch (error) {
-            const msg = error.response?.data?.message || error.message;
-            showAlert('Update Failed', msg, 'error');
+            showAlert('Update Failed', error.response?.data?.message || error.message, 'error');
         }
     };
 
+    /**
+     * THE TIME BENDER (handleTimeAdjustment):
+     * This is a cool feature! Teachers can add or remove minutes 
+     * from the exam while it's still running.
+     */
     const handleTimeAdjustment = async (minutes) => {
         if (isTimeAdjusting) return;
         setIsTimeAdjusting(true);
         try {
             await teacherAPI.adjustTime(quizId, minutes);
-            await fetchQuiz(); // Refresh to get new duration
+            await fetchQuiz(); // Refresh to get the updated duration!
         } catch (error) {
             showAlert('Adjustment Failed', error.response?.data?.message || error.message, 'error');
         } finally {
@@ -200,6 +225,10 @@ const QuizManage = () => {
         }
     };
 
+    /**
+     * STUDENT CONTROLS:
+     * Blocking a student kicks them out of the exam immediately.
+     */
     const handleStudentControl = async (resultId, action) => {
         if (action === 'block') {
             setStudentControlModal({ isOpen: true, resultId, action });
@@ -212,7 +241,7 @@ const QuizManage = () => {
         setProcessingAction(resultId);
         try {
             await teacherAPI.controlStudent(resultId, action);
-            await fetchMonitoring(); // Immediate refresh
+            await fetchMonitoring(); // Refresh list to show they are blocked.
             if (action === 'block') {
                 showAlert('Student Blocked', 'The student has been blocked from the exam.', 'success');
             }
@@ -224,6 +253,11 @@ const QuizManage = () => {
         }
     };
 
+    /**
+     * THE HEARTBEAT (useEffect):
+     * This runs once when the page opens. It sets up a "Polling" system 
+     * that checks the server every 5 seconds so the stats stay fresh!
+     */
     useEffect(() => {
         fetchQuiz();
         fetchMonitoring();
@@ -231,10 +265,15 @@ const QuizManage = () => {
             fetchMonitoring();
             fetchQuiz();
         }, 5000);
-        return () => clearInterval(pollInterval);
+        return () => clearInterval(pollInterval); // Clean up when we leave the page.
     }, [fetchQuiz, fetchMonitoring]);
 
     // Timer Logic
+    /**
+     * PRECISION TIMER (useEffect):
+     * This calculates exactly how many seconds are left in the exam.
+     * Math: (Start Time + Duration) - Current Time = Seconds Left.
+     */
     useEffect(() => {
         if (!quiz || quiz.status !== 'started' || !quiz.start_time) {
             setRemainingTime(0);
@@ -287,6 +326,11 @@ const QuizManage = () => {
     }), [liveStats]);
 
 
+    /**
+     * BUILDING A QUESTION (handleAddQuestion):
+     * When the teacher clicks "Save Question", we need to figure out 
+     * which answer is the correct one based on the question type.
+     */
     const handleAddQuestion = async (e) => {
         e.preventDefault();
         if (!newQuestion.question_text) return;
@@ -294,14 +338,18 @@ const QuizManage = () => {
 
         try {
             let correctAnswer = '';
+            // LOGIC CHECK: Depending on the type, the answer is stored differently.
             if (newQuestion.question_type === 'short_answer') {
+                // Short answers aren't graded by the computer (yet).
                 correctAnswer = 'MANUAL_GRADING';
             } else if (newQuestion.question_type === 'multiple_selection') {
+                // For MSQ, we join all correct option IDs with commas (e.g. "1,3,4").
                 correctAnswer = newQuestion.options
                     .filter(o => o.is_correct)
                     .map(o => o.id)
                     .join(',');
             } else {
+                // For MCQ or True/False, there's only one winner!
                 const correctOpt = newQuestion.options.find(o => o.is_correct);
                 correctAnswer = correctOpt ? correctOpt.id : '';
             }
@@ -311,6 +359,7 @@ const QuizManage = () => {
                 correct_answer: correctAnswer
             });
 
+            // RESET: Clear the form so the teacher can add the next one.
             setShowAddForm(false);
             setNewQuestion({
                 question_text: '',
@@ -364,6 +413,11 @@ const QuizManage = () => {
         });
     };
 
+    /**
+     * CHANGING TYPES (handleTypeChange):
+     * If a teacher switches from "MCQ" to "True/False", 
+     * we automatically set up the "True" and "False" options for them.
+     */
     const handleTypeChange = (type) => {
         let options = [];
         if (type === 'multiple_choice' || type === 'multiple_selection') {
@@ -419,6 +473,139 @@ const QuizManage = () => {
 
     return (
         <div className="space-y-8 pb-12">
+            {/* Time Adjustment Modal */}
+            <Transition.Root show={timeAdjustModalOpen} as={Fragment}>
+                <Dialog as="div" className="relative z-50" onClose={setTimeAdjustModalOpen}>
+                    <Transition.Child
+                        as={Fragment}
+                        enter="ease-out duration-300"
+                        enterFrom="opacity-0"
+                        enterTo="opacity-100"
+                        leave="ease-in duration-200"
+                        leaveFrom="opacity-100"
+                        leaveTo="opacity-0"
+                    >
+                        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
+                    </Transition.Child>
+
+                    <div className="fixed inset-0 z-10 w-screen overflow-y-auto">
+                        <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+                            <Transition.Child
+                                as={Fragment}
+                                enter="ease-out duration-300"
+                                enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                                enterTo="opacity-100 translate-y-0 sm:scale-100"
+                                leave="ease-in duration-200"
+                                leaveFrom="opacity-100 translate-y-0 sm:scale-100"
+                                leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
+                            >
+                                <Dialog.Panel className="relative transform overflow-hidden rounded-2xl bg-white dark:bg-gray-800 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-100 dark:border-gray-700">
+                                    <div className="absolute right-0 top-0 pr-4 pt-4 block z-10">
+                                        <button
+                                            type="button"
+                                            className="rounded-md bg-white dark:bg-gray-800 text-gray-400 hover:text-gray-500 focus:outline-none"
+                                            onClick={() => setTimeAdjustModalOpen(false)}
+                                        >
+                                            <span className="sr-only">Close</span>
+                                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
+                                    </div>
+
+                                    <div className="bg-white dark:bg-gray-800 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                        <div className="flex flex-col items-center">
+                                            {/* Hero Icon */}
+                                            <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20 mb-5 shadow-inner">
+                                                <ClockIcon className="h-10 w-10 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+                                            </div>
+
+                                            <div className="text-center w-full max-w-sm">
+                                                <Dialog.Title as="h3" className="text-2xl font-black leading-6 text-gray-900 dark:text-white tracking-tight mb-2">
+                                                    Adjust Exam Duration
+                                                </Dialog.Title>
+                                                <div className="mt-2 text-gray-500 dark:text-gray-400 mb-8">
+                                                    <p className="text-sm">Fine-tune the remaining time for all students.</p>
+                                                </div>
+
+                                                <div className="w-full relative mb-8 group">
+                                                    <label className="absolute -top-2.5 left-4 bg-white dark:bg-gray-800 px-2 text-xs font-bold text-indigo-600 uppercase tracking-widest z-10">
+                                                        Minutes to Adjust
+                                                    </label>
+                                                    <div className="relative flex items-center">
+                                                        <button
+                                                            onClick={() => setAdjustAmount(Math.max(1, adjustAmount - 1))}
+                                                            className="absolute left-2 p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                                        >
+                                                            <MinusIcon className="w-5 h-5" />
+                                                        </button>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            max="60"
+                                                            value={adjustAmount}
+                                                            onChange={(e) => setAdjustAmount(Math.max(1, parseInt(e.target.value) || 0))}
+                                                            className="w-full text-center text-4xl font-black border-2 border-gray-100 dark:border-gray-700 rounded-2xl py-4 focus:border-indigo-500 outline-none dark:bg-gray-800 dark:text-white transition-all peer group-hover:border-gray-200"
+                                                            placeholder="5"
+                                                        />
+                                                        <button
+                                                            onClick={() => setAdjustAmount(adjustAmount + 1)}
+                                                            className="absolute right-2 p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                                        >
+                                                            <PlusIcon className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4 w-full">
+                                                    <button
+                                                        onClick={() => {
+                                                            handleTimeAdjustment(adjustAmount);
+                                                            setTimeAdjustModalOpen(false);
+                                                        }}
+                                                        disabled={isTimeAdjusting || adjustAmount <= 0}
+                                                        className="group relative flex flex-col items-center justify-center p-5 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-2 border-green-100 dark:border-green-900/30 hover:border-green-300 dark:hover:border-green-700 hover:shadow-lg hover:shadow-green-100/50 dark:hover:shadow-none transition-all duration-300 active:scale-95"
+                                                    >
+                                                        <div className="p-2 bg-white dark:bg-gray-800 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform duration-300">
+                                                            <PlusIcon className="h-6 w-6 text-green-600" />
+                                                        </div>
+                                                        <span className="font-black text-green-700 dark:text-green-400 text-lg">Add Time</span>
+                                                        <span className="text-xs text-green-600/60 dark:text-green-400/60 font-medium mt-1 uppercase tracking-wide">Extend Exam</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => {
+                                                            handleTimeAdjustment(-adjustAmount);
+                                                            setTimeAdjustModalOpen(false);
+                                                        }}
+                                                        disabled={isTimeAdjusting || adjustAmount <= 0}
+                                                        className="group relative flex flex-col items-center justify-center p-5 rounded-2xl bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border-2 border-red-100 dark:border-red-900/30 hover:border-red-300 dark:hover:border-red-700 hover:shadow-lg hover:shadow-red-100/50 dark:hover:shadow-none transition-all duration-300 active:scale-95"
+                                                    >
+                                                        <div className="p-2 bg-white dark:bg-gray-800 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform duration-300">
+                                                            <MinusIcon className="h-6 w-6 text-red-600" />
+                                                        </div>
+                                                        <span className="font-black text-red-700 dark:text-red-400 text-lg">Remove Time</span>
+                                                        <span className="text-xs text-red-600/60 dark:text-red-400/60 font-medium mt-1 uppercase tracking-wide">Shorten Exam</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
+                                        <button
+                                            type="button"
+                                            className="mt-3 inline-flex w-full justify-center rounded-xl bg-white dark:bg-gray-800 px-3 py-2 text-sm font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 shadow-sm ring-1 ring-inset ring-gray-200 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 sm:mt-0 sm:w-auto uppercase tracking-wider"
+                                            onClick={() => setTimeAdjustModalOpen(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </Dialog.Panel>
+                            </Transition.Child>
+                        </div>
+                    </div>
+                </Dialog>
+            </Transition.Root>
             <AlertModal
                 isOpen={alertConfig.isOpen}
                 onClose={closeAlert}
@@ -444,7 +631,12 @@ const QuizManage = () => {
 
             </div>
 
-            {/* Tab Switcher */}
+            {/* 
+            * TAB SWITCHER:
+            * This changes what the teacher sees on their screen.
+            * 'overview' = General info * 'questions' = The exam editor
+            * 'live' = The real-time dashboard 
+            */}
             <div className="flex gap-2 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit">
                 {['overview', 'questions', 'live'].map((tab) => (
                     <button
@@ -461,42 +653,68 @@ const QuizManage = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-6">
-                {/* Overview Tab */}
+                {/* 1. OVERVIEW: The basic facts about the quiz (Room code, time, points). */}
                 {activeTab === 'overview' && (
                     <div className="bg-white dark:bg-gray-800 shadow rounded-xl p-6 w-full">
-                        <h2 className="text-lg font-medium mb-4">Quiz Information</h2>
-                        <div className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
-                            <p className="flex justify-between">
-                                <span className="font-bold">Room Code:</span>
-                                <span className="font-mono text-xl text-indigo-600 bg-gray-100 px-2 py-1 rounded">{quiz.room_code}</span>
-                            </p>
-                            <p className="flex justify-between"><span>Status:</span> <span className="capitalize font-bold">{quiz.status}</span></p>
-                            <p className="flex justify-between"><span>Duration:</span> <span>{quiz.duration_minutes} mins</span></p>
-                            <p className="flex justify-between"><span>Total Points:</span> <span>{quiz.total_points}</span></p>
+                        <h2 className="text-lg font-medium mb-6 flex items-center gap-2">
+                            <span className="w-1 h-6 bg-indigo-500 rounded-full"></span>
+                            Quiz Information
+                        </h2>
+                        {/* ... Stats Grid ... */}
 
-                            {quiz.status === 'draft' && (
-                                <p className="text-xs text-orange-600 bg-orange-50 p-2 mt-2 rounded border border-orange-100">
-                                    Quiz is currently a draft. Click <b>Activate</b> to allow students to join the Waiting Room.
-                                </p>
-                            )}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Room Code</span>
+                                <span className="font-mono text-2xl font-black text-indigo-600 tracking-wider block">{quiz.room_code}</span>
+                            </div>
 
-                            {quiz.status === 'active' && (
-                                <p className="text-xs text-green-600 bg-green-50 p-2 mt-2 rounded border border-green-100">
-                                    Quiz is <b>Active</b>. Students can now enter their ID and wait for you to start the exam.
-                                </p>
-                            )}
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Status</span>
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold capitalize ${quiz.status === 'started' ? 'bg-indigo-100 text-indigo-800' :
+                                    quiz.status === 'active' ? 'bg-green-100 text-green-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }`}>
+                                    {quiz.status}
+                                </span>
+                            </div>
+
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Duration</span>
+                                <span className="text-lg font-bold text-gray-900 dark:text-white block">{quiz.duration_minutes} mins</span>
+                            </div>
+
+                            <div className="p-4 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1">Total Points</span>
+                                <span className="text-lg font-bold text-gray-900 dark:text-white block">{quiz.total_points}</span>
+                            </div>
                         </div>
+
+                        {quiz.status === 'draft' && (
+                            <div className="mt-6 flex items-center gap-3 p-4 bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800 rounded-xl text-orange-700 dark:text-orange-300 text-sm font-medium">
+                                <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0" />
+                                <p>Quiz is currently a draft. Click <b>Activate</b> to allow students to join the Waiting Room.</p>
+                            </div>
+                        )}
+
+                        {quiz.status === 'active' && (
+                            <div className="mt-6 flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-xl text-green-700 dark:text-green-300 text-sm font-medium">
+                                <CheckBadgeIcon className="h-5 w-5 flex-shrink-0" />
+                                <p>Quiz is <b>Active</b>. Students can now enter their ID and wait for you to start the exam.</p>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Questions Tab */}
+                {/* 2. QUESTIONS: The list of questions the teacher has created. */}
+                
                 {activeTab === 'questions' && (
-                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+                    <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 max-w-4xl mx-auto w-full">
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-lg font-medium flex items-center">
                                 <DocumentTextIcon className="h-5 w-5 mr-2" />
                                 Questions ({quiz.questions?.length || 0})
                             </h2>
+                            {/* ... Add button and list ... */}
                             <button
                                 onClick={() => setShowAddForm(true)}
                                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold flex items-center transition-all shadow-lg shadow-indigo-500/20 active:scale-95"
@@ -590,7 +808,7 @@ const QuizManage = () => {
                     </div>
                 )}
 
-                {/* Live Tab - Monitoring Board */}
+                {/* 3. LIVE: The Monitoring Board (The Heart of the system!) */}
                 {activeTab === 'live' && (
                     <div className="space-y-8">
                         {/* Live Header Controls */}
@@ -688,63 +906,57 @@ const QuizManage = () => {
                                     </h2>
                                 </div>
 
-                                {/* The Control Pattern Pill (Positioned Right) */}
-                                <div className="flex items-center bg-[#0f172a] border border-slate-800 p-1.5 rounded-[2.5rem] shadow-xl gap-6 px-6 h-14">
-
-                                    {/* 1. Digital Timer Unit */}
-                                    <div className="flex items-center gap-3">
-                                        <ClockIcon className="h-6 w-6 text-sky-400" />
-                                        <div className="flex items-center gap-2 font-mono text-2xl font-black text-sky-400 tabular-nums tracking-tighter">
+                                {/* Redesigned Control Toolbar */}
+                                <div className="flex items-center gap-4">
+                                    {/* Timer Display */}
+                                    <div className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-2 shadow-sm">
+                                        <ClockIcon className={`h-5 w-5 ${quiz.status === 'started' ? 'text-indigo-600 animate-pulse' : 'text-gray-400'}`} />
+                                        <div className="font-mono text-xl font-bold text-gray-900 dark:text-white tabular-nums tracking-tight">
                                             {quiz.status === 'started' ? (
                                                 <>
-                                                    <span>{Math.floor(remainingTime / 60)}m</span>
-                                                    <span>{remainingTime % 60}s</span>
+                                                    <span>{Math.floor(remainingTime / 60).toString().padStart(2, '0')}</span>
+                                                    <span className="mx-1 opacity-50">:</span>
+                                                    <span>{(remainingTime % 60).toString().padStart(2, '0')}</span>
                                                 </>
                                             ) : (
-                                                <span className="text-slate-500 text-sm uppercase tracking-widest">{quiz.status}</span>
+                                                <span className="text-gray-400 text-sm font-sans uppercase tracking-widest font-bold">{quiz.status}</span>
                                             )}
                                         </div>
+
+                                        {/* Time Controls */}
+                                        {quiz.status === 'started' && (
+                                            <div className="flex items-center gap-1 pl-3 border-l border-gray-200 dark:border-gray-700 ml-1">
+                                                <button
+                                                    onClick={() => setTimeAdjustModalOpen(true)}
+                                                    className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg text-gray-500 hover:text-indigo-600 transition-colors flex items-center gap-1 text-xs font-bold px-2"
+                                                    title="Adjust Time"
+                                                >
+                                                    <PencilSquareIcon className="h-4 w-4" />
+                                                    <span className="hidden sm:inline">Adjust</span>
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
 
-                                    {/* 2. Adjustment Unit (Nested Pill) */}
-                                    {quiz.status === 'started' && (
-                                        <div className="flex items-center bg-slate-800/50 border border-slate-700/50 rounded-2xl px-2 py-1 gap-3">
-                                            <button
-                                                onClick={() => handleTimeAdjustment(-5)}
-                                                disabled={isTimeAdjusting}
-                                                className="p-1.5 hover:bg-slate-700 rounded-xl text-slate-400 hover:text-red-400 transition-all active:scale-95"
-                                            >
-                                                <MinusIcon className="h-5 w-5" />
-                                            </button>
-                                            <div className="w-px h-5 bg-slate-700" />
-                                            <button
-                                                onClick={() => handleTimeAdjustment(5)}
-                                                disabled={isTimeAdjusting}
-                                                className="p-1.5 hover:bg-slate-700 rounded-xl text-slate-400 hover:text-emerald-400 transition-all active:scale-95"
-                                            >
-                                                <PlusIcon className="h-5 w-5" />
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* 3. Global Actions */}
-                                    <div className="flex items-center gap-3 pl-2 border-l border-slate-800">
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-2">
                                         {quiz.status === 'draft' && (
                                             <button
                                                 onClick={() => updateStatus('active')}
                                                 disabled={!quiz.questions?.length}
-                                                className="bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white h-11 px-6 rounded-full text-[11px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                                                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm shadow-emerald-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                                             >
-                                                Activate
+                                                <CheckBadgeIcon className="h-5 w-5" />
+                                                Activate Quiz
                                             </button>
                                         )}
 
                                         {quiz.status === 'active' && (
                                             <button
                                                 onClick={() => updateStatus('started')}
-                                                className="bg-indigo-500 hover:bg-indigo-600 text-white h-11 px-8 rounded-full text-[11px] font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all active:scale-95 flex items-center gap-2 group"
+                                                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 dark:shadow-none transition-all active:scale-95 animate-bounce-subtle"
                                             >
-                                                <PlayIcon className="w-4 h-4 transition-transform group-hover:scale-125" />
+                                                <PlayIcon className="h-5 w-5" />
                                                 Start Exam
                                             </button>
                                         )}
@@ -752,10 +964,10 @@ const QuizManage = () => {
                                         {quiz.status === 'started' && (
                                             <button
                                                 onClick={() => updateStatus('finished')}
-                                                title="Terminate Quiz"
-                                                className="w-11 h-11 bg-red-500/10 hover:bg-red-600 border border-red-500/20 text-red-500 hover:text-white rounded-full flex items-center justify-center transition-all duration-300 group shadow-sm"
+                                                className="flex items-center gap-2 bg-white dark:bg-gray-800 border-2 border-red-100 dark:border-red-900/30 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-5 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-95"
                                             >
-                                                <NoSymbolIcon className="h-6 w-6 transition-transform group-hover:scale-110" />
+                                                <NoSymbolIcon className="h-5 w-5" />
+                                                Finish Exam
                                             </button>
                                         )}
                                     </div>

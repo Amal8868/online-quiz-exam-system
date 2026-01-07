@@ -1,19 +1,27 @@
 <?php
+// This is the "Teacher Management" controller. 
+// It handles everything specific to teachers: signing up, looking at their dashboard, and changing passwords.
+require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/Teacher.php';
 require_once __DIR__ . '/../models/Quiz.php';
+require_once __DIR__ . '/../models/User.php';
 
-class TeacherController {
+class TeacherController extends BaseController {
     private $teacherModel;
     private $quizModel;
+    private $userModel;
     
     public function __construct() {
+        // We initialize all the models we need to talk to.
         $this->teacherModel = new Teacher();
         $this->quizModel = new Quiz();
+        $this->userModel = new User();
     }
     
-    // Register a new teacher
+    // 1. "I want to join!" - Handles teacher registration.
     public function register($data) {
         try {
+            // Validate that they didn't leave anything blank.
             if (!isset($data['name']) || !isset($data['email']) || !isset($data['password'])) {
                 throw new Exception('Name, email, and password are required', 400);
             }
@@ -21,29 +29,64 @@ class TeacherController {
             $name = trim($data['name']);
             $email = trim($data['email']);
             $password = $data['password'];
+            $gender = isset($data['gender']) ? $data['gender'] : null;
 
-            if (empty($name) || empty($email) || empty($password)) {
-                throw new Exception('Fields cannot be empty', 400);
-            }
-            
+            // SECURITY: Check that the name doesn't contain numbers.
             if (!preg_match('/^[a-zA-Z\s]+$/', $name)) {
                 throw new Exception('Name can only contain letters and spaces (no numbers allowed)', 400);
             }
             
+            // SECURITY: Ensure it's a real-looking email.
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 throw new Exception('Please provide a valid email address', 400);
             }
             
+            // SECURITY: Make sure the password isn't too weak.
             if (strlen($password) < 6) {
                 throw new Exception('Password must be at least 6 characters long', 400);
             }
+
+            // Check if this teacher has already signed up before.
+            if ($this->userModel->findByEmail($email)) {
+                throw new Exception('Email already registered', 409);
+            }
+
+            // We split "Amal N" into "Amal" and "N".
+            $parts = explode(' ', $name, 2);
+            $firstName = $parts[0];
+            $lastName = isset($parts[1]) ? $parts[1] : '';
+
+            // We generate a clean username like 'tea_1001'.
+            $username = $this->userModel->generateSequentialUsername('Teacher');
             
-            $teacherId = $this->teacherModel->register($name, $email, $password);
-            
-            $token = AuthMiddleware::generateJWT([
-                'id' => $teacherId,
+            // We create a unique ID for this teacher.
+            $userId = 'TCH' . time() . rand(100, 999);
+
+            $newUser = [
+                'user_id' => $userId, 
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'username' => $username,
                 'email' => $email,
-                'role' => 'teacher'
+                'password' => $password, 
+                'user_type' => 'Teacher',
+                'gender' => $gender,
+                'status' => 'Active',
+                // We mark it as 'first_login' so we can remind them to change their temporary password if needed.
+                'first_login' => 1
+            ];
+
+            $id = $this->userModel->createUser($newUser);
+
+            if (!$id) {
+                throw new Exception('Failed to register user', 500);
+            }
+            
+            // Give them their "VIP Pass" (JWT) right away!
+            $token = AuthMiddleware::generateJWT([
+                'id' => $id,
+                'email' => $email,
+                'role' => 'Teacher'
             ]);
             
             return [
@@ -52,10 +95,11 @@ class TeacherController {
                 'data' => [
                     'token' => $token,
                     'user' => [
-                        'id' => $teacherId,
+                        'id' => $id,
                         'name' => $name,
                         'email' => $email,
-                        'role' => 'teacher'
+                        'role' => 'Teacher',
+                        'gender' => $gender
                     ]
                 ]
             ];
@@ -69,7 +113,7 @@ class TeacherController {
         }
     }
     
-    // Teacher login
+    // 2. "Let me in!" - Redirects to the teacher model for verification.
     public function login($data) {
         try {
             if (empty($data['email']) || empty($data['password'])) {
@@ -93,7 +137,7 @@ class TeacherController {
         }
     }
 
-    // Reset password
+    // 3. "I forgot my password" - Helps teachers get back in.
     public function resetPassword($data) {
         try {
             if (empty($data['email']) || empty($data['password'])) {
@@ -116,18 +160,11 @@ class TeacherController {
         }
     }
     
-    // Get teacher's dashboard data
+    // 4. "Overview" - Gathers the numbers for the dashboard cards (Total Quizzes, Students, etc.)
     public function getDashboard($teacherId) {
         try {
-            // Get teacher's quizzes
+            // Fetch everything the teacher has created.
             $quizzes = $this->teacherModel->getQuizzes($teacherId); 
-            // Note: I need to ensure TeacherModel::getQuizzes is updated to not join classes.
-            // I'll update TeacherModel as well if needed, or query QuizModel here.
-            
-            // To be safe, I'll use QuizModel here if I implement a method there.
-            // Let's assume I fix TeacherModel later or use a raw query here if needed, 
-            // but for now I'll trust TeacherModel.php (wait, I haven't updated it yet to remove class join).
-            // Actually, I should update Teacher.php to remove class dependency too.
             
             $stats = [
                 'total_quizzes' => count($quizzes),
@@ -141,7 +178,7 @@ class TeacherController {
                 'success' => true,
                 'data' => [
                     'stats' => $stats,
-                    'recent_quizzes' => array_slice($quizzes, 0, 5)
+                    'recent_quizzes' => array_slice($quizzes, 0, 5) // Just show the top 5.
                 ]
             ];
             
@@ -151,6 +188,29 @@ class TeacherController {
                 'success' => false,
                 'error' => $e->getMessage()
             ];
+        }
+    }
+
+    // 5. "Update Security" - Used for changing passwords.
+    public function changePassword($teacherId, $data) {
+        try {
+            if (empty($data['new_password'])) {
+                throw new Exception('New password is required', 400);
+            }
+            
+            if (strlen($data['new_password']) < 6) {
+                throw new Exception('Password must be at least 6 characters long', 400);
+            }
+            
+            $this->userModel->updateUser($teacherId, [
+                'password' => $data['new_password'],
+                'first_login' => 0 // They've officially changed their temp password now.
+            ]);
+            
+            return $this->success(null, 'Password changed successfully');
+            
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), $e->getCode() ?: 500);
         }
     }
 }

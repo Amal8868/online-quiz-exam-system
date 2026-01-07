@@ -1,9 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { HomeIcon } from '@heroicons/react/24/outline';
-
 const NotFound = () => {
+    
     return (
+
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
             <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
                 <h1 className="text-9xl font-extrabold text-primary-600 dark:text-primary-400">404</h1>
@@ -12,6 +13,7 @@ const NotFound = () => {
                     The page you are looking for doesn't exist or has been moved.
                 </p>
                 <div className="mt-6">
+
                     <Link
                         to="/"
                         className="btn btn-primary inline-flex items-center"

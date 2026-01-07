@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+
 import {
     ClipboardDocumentCheckIcon,
     UserGroupIcon,
@@ -8,30 +9,131 @@ import {
     EyeIcon,
     CalendarDaysIcon,
     ClockIcon,
-    UserCircleIcon
+    UserCircleIcon,
+    LockClosedIcon,
+    ShieldCheckIcon,
+    CameraIcon
 } from '@heroicons/react/24/outline';
-import { teacherAPI } from '../../services/api';
+import { teacherAPI, authAPI } from '../../services/api';
 import ConfirmationModal from '../../components/ConfirmationModal';
 import AlertModal from '../../components/AlertModal';
 
+/**
+ * THE TEACHER'S CONTROL ROOM (Dashboard)
+ * 
+ * This is where teachers land after logging in. 
+ * It gives them a bird's-eye view of their quizzes, students, 
+ * and even show the current time to help them stay on schedule!
+ */
 const Dashboard = () => {
+    // We use "States" to remember data while the page is open.
     const [stats, setStats] = useState(null);
     const [quizzes, setQuizzes] = useState([]);
     const [loading, setLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
 
-    // Modal State
+    // Modal States: These control the pop-up boxes for deleting or resetting passwords.
     const [deleteModal, setDeleteModal] = useState({ isOpen: false, quizId: null, quizTitle: '' });
     const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: '', message: '', type: 'success' });
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [passwordData, setPasswordData] = useState({ new_password: '', confirm_password: '' });
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
-    const user = JSON.parse(localStorage.getItem('user') || sessionStorage.getItem('user') || '{}');
+    const fileInputRef = React.useRef(null);
+
+    // We grab the user's info from the browser's "Safe" (LocalStorage).
+    const [user, setUser] = useState(JSON.parse(
+        (localStorage.getItem('token') ? localStorage.getItem('user') : sessionStorage.getItem('user')) ||
+        localStorage.getItem('user') ||
+        sessionStorage.getItem('user') ||
+        '{}'
+    ));
+
+    // PHOTO UPLOAD: When the teacher clicks their avatar.
+    const handleImageClick = () => {
+        fileInputRef.current.click();
+    };
+
+    const handleImageChange = async (e) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            const formData = new FormData(); // FormData is like a digital envelope for files.
+            formData.append('profile_pic', file);
+
+            try {
+                const response = await authAPI.updateProfilePicture(formData);
+                if (response.data.success) {
+                    const newProfilePic = response.data.data.profile_pic;
+                    const updatedUser = { ...user, profile_pic: newProfilePic };
+
+                    setUser(updatedUser);
+
+                    // Update the "Safe" (Storage) with the new photo URL.
+                    const storage = localStorage.getItem('token') ? localStorage : sessionStorage;
+                    storage.setItem('user', JSON.stringify(updatedUser));
+
+                    setAlertConfig({
+                        isOpen: true,
+                        title: 'Success',
+                        message: 'Profile picture updated successfully!',
+                        type: 'success'
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to upload profile picture', error);
+                setAlertConfig({
+                    isOpen: true,
+                    title: 'Upload Failed',
+                    message: error.response?.data?.message || 'Failed to update profile picture.',
+                    type: 'error'
+                });
+            }
+        }
+    };
+
+    // DATA FETCHING: Asking the API for stats (how many students) and the quiz list.
+    const fetchDashboardData = useCallback(async () => {
+        try {
+            const [statsRes, quizzesRes] = await Promise.all([
+                teacherAPI.getDashboardStats(),
+                teacherAPI.getQuizzes()
+            ]);
+
+            setStats(statsRes.data.data.stats);
+            setQuizzes(quizzesRes.data.data);
+        } catch (error) {
+            console.error('Error fetching dashboard data:', error);
+        } finally {
+            setLoading(false); // Stop the spinning circle once the data arrives!
+        }
+    }, []);
 
     useEffect(() => {
+        // We sync the user's profile with the server on every load.
+        authAPI.getCurrentUser().then(res => {
+            if (res.data.success && res.data.data.user) {
+                const refreshedUser = res.data.data.user;
+                setUser(refreshedUser);
+                const storage = localStorage.getItem('token') ? localStorage : sessionStorage;
+                storage.setItem('user', JSON.stringify(refreshedUser));
+            }
+        }).catch(err => console.error("Failed to refresh user profile", err));
+
         fetchDashboardData();
+
+        // A live clock for the teacher.
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+
+        // SECURITY FEATURE: If it's their very first time logging in, we FORCE a password change.
+        if (user.first_login === true || user.first_login === 1 || user.first_login === '1') {
+            setShowPasswordModal(true);
+        }
+
         return () => clearInterval(timer);
     }, []);
 
+    // FORMATTING HELPERS: Making dates and times look pretty.
     const formatDate = (date) => {
         return date.toLocaleDateString('en-US', {
             weekday: 'long',
@@ -50,22 +152,7 @@ const Dashboard = () => {
         });
     };
 
-    const fetchDashboardData = async () => {
-        try {
-            const [statsRes, quizzesRes] = await Promise.all([
-                teacherAPI.getDashboardStats(),
-                teacherAPI.getQuizzes()
-            ]);
-
-            setStats(statsRes.data.data.stats);
-            setQuizzes(quizzesRes.data.data);
-        } catch (error) {
-            console.error('Error fetching dashboard data:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
+    // DELETE LOGIC: Asking for confirmation before wiping a quiz.
     const handleDeleteQuiz = (quiz) => {
         setDeleteModal({
             isOpen: true,
@@ -86,7 +173,7 @@ const Dashboard = () => {
                 message: 'The quiz has been permanently removed.',
                 type: 'success'
             });
-            fetchDashboardData();
+            fetchDashboardData(); // Refresh the list without reloading the whole page.
         } catch (error) {
             console.error('Error deleting quiz:', error);
             setAlertConfig({
@@ -98,6 +185,47 @@ const Dashboard = () => {
         }
     };
 
+    // PASSWORD UPDATE: When a new teacher sets their real password.
+    const handlePasswordChange = async (e) => {
+        e.preventDefault();
+        setPasswordError('');
+
+        if (passwordData.new_password.length < 6) {
+            setPasswordError('Password must be at least 6 characters long');
+            return;
+        }
+
+        if (passwordData.new_password !== passwordData.confirm_password) {
+            setPasswordError('Passwords do not match');
+            return;
+        }
+
+        setPasswordSubmitting(true);
+        try {
+            const res = await teacherAPI.changePassword({ new_password: passwordData.new_password });
+
+            if (res.data.success) {
+                const updatedUser = { ...user, first_login: 0 };
+                const storage = localStorage.getItem('token') ? localStorage : sessionStorage;
+                storage.setItem('user', JSON.stringify(updatedUser));
+
+                setShowPasswordModal(false);
+                setAlertConfig({
+                    isOpen: true,
+                    title: 'Success',
+                    message: 'Password changed successfully. You can now use your dashboard.',
+                    type: 'success'
+                });
+            }
+        } catch (error) {
+            const backendError = error.response?.data?.error || error.response?.data?.message;
+            setPasswordError(backendError || 'Failed to change password');
+        } finally {
+            setPasswordSubmitting(false);
+        }
+    };
+
+    // If we are still waiting for the server, show a nice loading message.
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center h-64 space-y-4">
@@ -109,34 +237,75 @@ const Dashboard = () => {
 
     return (
         <div className="space-y-10">
-            {/* Header with Welcome and Time */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-4">
-                <div>
-                    <div className="flex items-center gap-4 mb-2">
-                        <div className="p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-2xl border border-indigo-100 dark:border-indigo-500/20 shadow-sm">
-                            <UserCircleIcon className="h-11 w-11 text-indigo-600 dark:text-indigo-400" />
+            {/* --- PROFILE SECTION --- */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex flex-col md:flex-row items-center gap-6 text-center md:text-left">
+                        {/* THE AVATAR: Clicking the photo opens the file picker. */}
+                        <div className="relative cursor-pointer" onClick={handleImageClick}>
+                            <img
+                                src={user.profile_pic || (user.gender && user.gender.toLowerCase() === 'female'
+                                    ? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(user.username || user.name)}&top=hijab&clothing=blazerAndShirt`
+                                    : `https://avatar.iran.liara.run/public/boy?username=${user.username || user.name}`)}
+                                alt="Profile"
+                                className="h-24 w-24 rounded-full border-4 border-white dark:border-gray-700 shadow-md object-cover hover:opacity-90 transition-opacity"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity z-10 bg-black/20 rounded-full">
+                                <CameraIcon className="h-8 w-8 text-white" />
+                            </div>
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleImageChange}
+                                className="hidden"
+                                accept="image/png, image/jpeg, image/webp"
+                            />
+                            {/* Online/Active light */}
+                            <div className="absolute bottom-1 right-1 h-6 w-6 bg-green-500 border-4 border-white dark:border-slate-900 rounded-full"></div>
                         </div>
-                        <h1 className="text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
-                            Welcome, <span className="text-indigo-600">{user.name?.split(' ')[0] || 'Teacher'}</span>
-                        </h1>
+
+                        <div className="space-y-2">
+                            <div>
+                                <h1 className="text-3xl font-black text-gray-900 dark:text-white tracking-tight mb-1">
+                                    {user.gender && user.gender.toLowerCase() === 'male' ? 'Mr. ' : user.gender && user.gender.toLowerCase() === 'female' ? 'Ms. ' : ''}{user.name || 'Teacher'}
+                                </h1>
+                                <div className="flex items-center justify-center md:justify-start gap-2 text-indigo-600 dark:text-indigo-200 font-medium">
+                                    <span className="px-3 py-1 bg-indigo-50 dark:bg-white/10 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-sm border border-indigo-100 dark:border-white/10 text-indigo-700 dark:text-indigo-200">
+                                        Teacher Account
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-1 text-gray-500 dark:text-slate-400 text-sm font-medium">
+                                <div className="flex items-center justify-center md:justify-start gap-2">
+                                    <UserCircleIcon className="h-4 w-4" />
+                                    <span>{user.email || 'teacher@quizmaster.com'}</span>
+                                </div>
+                                <div className="flex items-center justify-center md:justify-start gap-2">
+                                    <CalendarDaysIcon className="h-4 w-4" />
+                                    <span>Joined {new Date().getFullYear()}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <p className="text-slate-500 font-semibold uppercase tracking-widest text-[11px] mt-2">
-                        DASHBOARD & PERFORMANCE OVERVIEW
-                    </p>
-                    <div className="mt-8 flex flex-wrap items-center gap-8">
-                        <div className="flex items-center text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-4 py-2 rounded-xl shadow-sm transition-all hover:shadow-md">
-                            <CalendarDaysIcon className="h-5 w-5 mr-3 text-indigo-500" />
-                            <span className="text-sm font-bold tracking-tight uppercase">{formatDate(currentTime)}</span>
-                        </div>
-                        <div className="flex items-center text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 px-4 py-2 rounded-xl shadow-sm transition-all hover:shadow-md">
-                            <ClockIcon className="h-5 w-5 mr-3 text-indigo-500" />
-                            <span className="text-sm font-mono font-black tracking-tight">{formatTime(currentTime)}</span>
+
+                    {/* LIVE CLOCK */}
+                    <div className="w-full md:w-auto text-center md:text-right p-4">
+                        <div className="inline-flex flex-col items-center md:items-end">
+                            <h2 className="text-5xl font-black text-gray-900 dark:text-white tracking-tight leading-none font-sans drop-shadow-sm">
+                                {formatTime(currentTime)}
+                            </h2>
+                            <p className="mt-2 text-indigo-600 dark:text-indigo-200 font-bold text-sm uppercase tracking-widest flex items-center gap-2">
+                                <CalendarDaysIcon className="h-4 w-4" />
+                                {formatDate(currentTime)}
+                            </p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Stats Grid */}
+            {/* --- STATS GRID --- 
+                I used 'framer-motion' to make these cards pop up with a cool animation. */}
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
                 {[
                     { name: 'Total Quizzes', value: stats?.total_quizzes || 0, icon: ClipboardDocumentCheckIcon, color: 'text-purple-600', bg: 'bg-purple-50', link: '/teacher/results' },
@@ -167,7 +336,7 @@ const Dashboard = () => {
                 ))}
             </div>
 
-            {/* Quizzes Section */}
+            {/* --- RECENT QUIZZES LIST --- */}
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
                 <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center">
@@ -232,7 +401,11 @@ const Dashboard = () => {
                     )}
                 </div>
             </div>
-            {/* Modals */}
+
+            {/* --- MODALS --- 
+                ConfirmationModal: "Are you sure?"
+                AlertModal: "Success!" or "Error!"
+            */}
             <ConfirmationModal
                 isOpen={deleteModal.isOpen}
                 onClose={() => setDeleteModal({ ...deleteModal, isOpen: false })}
@@ -250,6 +423,161 @@ const Dashboard = () => {
                 message={alertConfig.message}
                 type={alertConfig.type}
             />
+
+            {/* Forced Password Change Modal: Only show if it's the 1st login */}
+            {showPasswordModal && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    zIndex: 9999,
+                    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backdropFilter: 'blur(10px)'
+                }}>
+                    <div style={{
+                        backgroundColor: '#ffffff',
+                        width: '100%',
+                        maxWidth: '450px',
+                        borderRadius: '20px',
+                        padding: '30px',
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                        border: '4px solid #6366f1',
+                        margin: '20px'
+                    }}>
+                        <div className="text-center mb-8">
+                            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-indigo-100 mb-4 shadow-lg shadow-indigo-500/30">
+                                <LockClosedIcon className="h-8 w-8 text-indigo-700" />
+                            </div>
+                            <h3
+                                className="text-3xl font-black text-slate-900 tracking-tight"
+                                style={{ color: '#000000', fontSize: '24px', fontWeight: '900', marginBottom: '10px' }}
+                            >
+                                Security Update
+                            </h3>
+                            <p
+                                className="mt-3 text-slate-600 font-bold text-base leading-relaxed"
+                                style={{ color: '#334155', fontSize: '14px', fontWeight: '600' }}
+                            >
+                                Welcome! Please create a new password to secure your account.
+                            </p>
+                        </div>
+
+                        <form onSubmit={handlePasswordChange} className="space-y-6">
+                            {passwordError && (
+                                <div style={{
+                                    backgroundColor: '#fef2f2',
+                                    color: '#991b1b',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #f87171',
+                                    marginBottom: '15px',
+                                    fontWeight: 'bold',
+                                    fontSize: '14px'
+                                }}>
+                                    ⚠️ {passwordError}
+                                </div>
+                            )}
+
+                            <div style={{ marginBottom: '15px' }}>
+                                <label style={{
+                                    display: 'block',
+                                    color: '#1e293b',
+                                    fontSize: '12px',
+                                    fontWeight: '800',
+                                    textTransform: 'uppercase',
+                                    marginBottom: '8px'
+                                }}>
+                                    New Password
+                                </label>
+                                <input
+                                    type="password"
+                                    value={passwordData.new_password}
+                                    onChange={(e) => setPasswordData({ ...passwordData, new_password: e.target.value })}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        backgroundColor: '#f8fafc',
+                                        border: '2px solid #cbd5e1',
+                                        borderRadius: '12px',
+                                        color: '#0f172a',
+                                        fontSize: '16px',
+                                        outline: 'none',
+                                        fontWeight: '600'
+                                    }}
+                                    placeholder="Enter strong password"
+                                    required
+                                />
+                            </div>
+
+                            <div style={{ marginBottom: '25px' }}>
+                                <label style={{
+                                    display: 'block',
+                                    color: '#1e293b',
+                                    fontSize: '12px',
+                                    fontWeight: '800',
+                                    textTransform: 'uppercase',
+                                    marginBottom: '8px'
+                                }}>
+                                    Confirm New Password
+                                </label>
+                                <input
+                                    type="password"
+                                    value={passwordData.confirm_password}
+                                    onChange={(e) => setPasswordData({ ...passwordData, confirm_password: e.target.value })}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 16px',
+                                        backgroundColor: '#f8fafc',
+                                        border: '2px solid #cbd5e1',
+                                        borderRadius: '12px',
+                                        color: '#0f172a',
+                                        fontSize: '16px',
+                                        outline: 'none',
+                                        fontWeight: '600'
+                                    }}
+                                    placeholder="Repeat password"
+                                    required
+                                />
+                            </div>
+
+                            <button
+                                type="submit"
+                                disabled={passwordSubmitting}
+                                style={{
+                                    width: '100%',
+                                    padding: '16px',
+                                    backgroundColor: '#4f46e5',
+                                    color: '#ffffff',
+                                    borderRadius: '12px',
+                                    border: 'none',
+                                    fontWeight: '900',
+                                    fontSize: '16px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '10px',
+                                    boxShadow: '0 10px 15px -3px rgba(79, 70, 229, 0.3)'
+                                }}
+                            >
+                                {passwordSubmitting ? (
+                                    <div className="w-6 h-6 border-4 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                ) : (
+                                    <>
+                                        <ShieldCheckIcon className="h-6 w-6" />
+                                        <span>UPDATE PASSWORD</span>
+                                    </>
+                                )}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

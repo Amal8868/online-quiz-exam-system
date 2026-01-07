@@ -1,40 +1,32 @@
 <?php
-// Error reporting
-error_reporting(E_ALL);
-ini_set('display_errors', 0); // Disable display errors for API to return clean JSON
+// Hey! This is the config file. It's like the "Settings" page for our backend.
+// Everything from database names to timezone goes here.
 
-// Database configuration
+// I turned off 'display_errors' so that if something breaks, PHP doesn't spit out raw code.
+// Instead, it stays quiet so our API can return clean JSON messages.
+error_reporting(E_ALL);
+ini_set('display_errors', 0); 
+
+// Database configuration - This is how we talk to MySQL.
 define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
-define('DB_PASS', 'amal1234'); // Set your database password here
+define('DB_PASS', 'amal1234'); // Make sure this matches your XAMPP password!
 define('DB_NAME', 'online_quiz_system');
 
-// JWT Secret Key (generate a strong secret key for production)
+// JWT Secret - This is a secret key for security. Keep it safe!
 define('JWT_SECRET', 'your_jwt_secret_key_here');
 define('JWT_ALGORITHM', 'HS256');
 
-// Application settings
+// App settings - Basic info about where the project is running.
 define('APP_NAME', 'Online Quiz System');
-define('APP_URL', 'http://localhost'); // Update with your actual URL
-define('FRONTEND_URL', 'http://localhost:3000'); // React frontend URL
+define('APP_URL', 'http://localhost'); 
+define('FRONTEND_URL', 'http://localhost:3000'); // This is where our React app lives.
 
-// CORS settings
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Max-Age: 3600");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
-
-// Handle preflight requests
-if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit();
-}
-
-// Timezone
+// Timezone - Set this so our "created_at" timestamps are correct.
 date_default_timezone_set('Asia/Riyadh');
 
-// Database connection
+// This function is the "Middleman" that actually connects us to the database.
+// I used a "static" variable so we don't accidentally open 100 connections at once.
 function getDBConnection() {
     static $conn;
     
@@ -42,17 +34,18 @@ function getDBConnection() {
         try {
             $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
             $options = [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION, // Throw errors if queries fail.
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,     // Give us data as nice arrays.
                 PDO::ATTR_EMULATE_PREPARES   => false,
             ];
             
             $conn = new PDO($dsn, DB_USER, DB_PASS, $options);
         } catch (PDOException $e) {
+            // If we can't connect, we tell the frontend it's a 500 server error.
             http_response_code(500);
             echo json_encode([
                 'success' => false,
-                'message' => 'Database connection failed',
+                'message' => 'Database connection failed. Is MySQL running?',
                 'error' => $e->getMessage()
             ]);
             exit();

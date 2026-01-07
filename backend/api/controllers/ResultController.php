@@ -1,4 +1,6 @@
 <?php
+// This is the "Grading Hub" controller. 
+// it handles looking at student scores and letting teachers manually grade short-answer questions.
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/Result.php';
 require_once __DIR__ . '/../models/ClassModel.php';
@@ -6,12 +8,12 @@ require_once __DIR__ . '/../models/Quiz.php';
 
 class ResultController extends BaseController {
     
-    // Get Results for a specific Class and Quiz
+    // 1. "How did the class do?" - Fetches all results for a specific quiz taken by a specific class.
     public function getClassQuizResults($teacherId, $classId, $quizId) {
         try {
-            // Security check: teacher owns class
+            // Security check: We verify that the teacher actually owns this class before showing scores.
             $classModel = new ClassModel();
-            $class = $classModel->getClassWithStudents($classId, $teacherId); // Throws if not owner
+            $class = $classModel->getClassWithStudents($classId, $teacherId); 
             
             $resultModel = new Result();
             $results = $resultModel->getResultsByClassAndQuiz($classId, $quizId);
@@ -22,7 +24,7 @@ class ResultController extends BaseController {
         }
     }
 
-    // Get detailed answers for grading
+    // 2. "Individual Breakdown" - Shows exactly what a single student answered for every question.
     public function getStudentResult($teacherId, $resultId) {
         try {
             $resultModel = new Result();
@@ -31,9 +33,6 @@ class ResultController extends BaseController {
             if (!$data) {
                 return $this->error('Result not found', 404);
             }
-
-            // Optional: Add security check to ensure teacher teaches this student's class
-            // For now assuming if they have the ID, they can view (middleware usually handles auth token)
             
             return $this->success($data);
         } catch (Exception $e) {
@@ -41,7 +40,7 @@ class ResultController extends BaseController {
         }
     }
 
-    // Submit manual grade
+    // 3. "Manual Grade" - This is for when a teacher reads a short answer and decides the points.
     public function saveGrade($teacherId, $resultId) {
         $data = json_decode(file_get_contents("php://input"), true);
         
@@ -51,6 +50,8 @@ class ResultController extends BaseController {
 
         try {
             $resultModel = new Result();
+            
+            // We tell the Result model to update the points specifically for this question in this attempt.
             $success = $resultModel->updateManualGrade($resultId, $data['question_id'], $data['points']);
             
             if ($success) {
@@ -59,7 +60,7 @@ class ResultController extends BaseController {
                 return $this->error('Failed to update grade', 500);
             }
         } catch (Exception $e) {
-            return $this->error($e->getMessage(), 400); // 400 for validation errors
+            return $this->error($e->getMessage(), 400); 
         }
     }
 }

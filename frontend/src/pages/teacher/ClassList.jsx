@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-    PlusIcon,
     UserGroupIcon,
     AcademicCapIcon,
     MagnifyingGlassIcon,
     ChevronRightIcon,
-    TableCellsIcon,
     PresentationChartBarIcon
 } from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
@@ -16,12 +14,6 @@ const ClassList = () => {
     const navigate = useNavigate();
     const [classes, setClasses] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [newClass, setNewClass] = useState({
-        name: '',
-        section: '',
-        academic_year: new Date().getFullYear() + '-' + (new Date().getFullYear() + 1)
-    });
     const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
@@ -39,21 +31,6 @@ const ClassList = () => {
         }
     };
 
-    const handleCreateClass = async (e) => {
-        e.preventDefault();
-        try {
-            await teacherAPI.createClass(newClass);
-            setShowCreateModal(false);
-            setNewClass({
-                name: '',
-                section: '',
-                academic_year: new Date().getFullYear() + '-' + (new Date().getFullYear() + 1)
-            });
-            fetchClasses();
-        } catch (error) {
-            alert('Failed to create class: ' + (error.response?.data?.message || error.message));
-        }
-    };
 
     const filteredClasses = classes.filter(c =>
         c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -91,21 +68,6 @@ const ClassList = () => {
                     />
                 </div>
 
-                <div className="flex items-center space-x-3 w-full md:w-auto justify-end">
-                    <button
-                        onClick={() => navigate('/teacher/classes/import')}
-                        className="btn bg-white dark:bg-gray-800 text-indigo-600 hover:text-indigo-700 font-bold px-6 py-2.5 rounded-2xl flex items-center transition-all border-2 border-gray-100 dark:border-gray-700 shadow-sm text-sm"
-                    >
-                        <TableCellsIcon className="h-5 w-5 mr-2" />
-                        One-Time Upload
-                    </button>
-                    <button
-                        onClick={() => setShowCreateModal(true)}
-                        className="btn bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-xl flex items-center transition-all shadow-lg shadow-indigo-200 dark:shadow-none text-sm"
-                    >
-                        <PlusIcon className="h-5 w-5 mr-2" /> New Class
-                    </button>
-                </div>
             </div>
 
             {/* Class Grid */}
@@ -148,75 +110,11 @@ const ClassList = () => {
                     <div className="col-span-full py-20 text-center bg-gray-50/50 dark:bg-gray-800/30 rounded-xl border-4 border-dashed border-gray-100 dark:border-gray-700">
                         <UserGroupIcon className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                         <h3 className="text-lg font-medium text-gray-900 dark:text-white">No classes found</h3>
-                        <p className="text-gray-500 mt-1">Create your first class to start managing students</p>
+                        <p className="text-gray-500 mt-1">Contact your administrator to be assigned to a class.</p>
                     </div>
                 )}
             </div>
 
-            {/* Create Modal */}
-            <AnimatePresence>
-                {showCreateModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/50 backdrop-blur-sm">
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-10 border border-gray-100 dark:border-gray-700"
-                        >
-                            <h2 className="text-3xl font-black tracking-tight mb-6">Create New Class</h2>
-                            <form onSubmit={handleCreateClass} className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Class Name *</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        placeholder="e.g., Computer Science 101"
-                                        className="input w-full"
-                                        value={newClass.name}
-                                        onChange={e => setNewClass({ ...newClass, name: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Section / Group</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g., Section A"
-                                        className="input w-full"
-                                        value={newClass.section}
-                                        onChange={e => setNewClass({ ...newClass, section: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1">Academic Year</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        placeholder="e.g., 2023-2024"
-                                        className="input w-full"
-                                        value={newClass.academic_year}
-                                        onChange={e => setNewClass({ ...newClass, academic_year: e.target.value })}
-                                    />
-                                </div>
-                                <div className="flex space-x-3 pt-4">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowCreateModal(false)}
-                                        className="btn btn-secondary flex-1"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="btn btn-primary flex-1"
-                                    >
-                                        Create Class
-                                    </button>
-                                </div>
-                            </form>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
         </div>
     );
 };

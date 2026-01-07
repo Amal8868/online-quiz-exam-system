@@ -11,6 +11,7 @@ const TeacherRegister = () => {
         email: '',
         password: '',
         confirmPassword: '',
+        gender: '',
     });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -75,6 +76,7 @@ const TeacherRegister = () => {
                 name: formData.name,
                 email: formData.email,
                 password: formData.password,
+                gender: formData.gender,
             });
 
             // Check for business logic errors even if HTTP status is 200
@@ -159,6 +161,26 @@ const TeacherRegister = () => {
                                     onChange={handleChange}
                                     className="input"
                                 />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label htmlFor="gender" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Gender
+                            </label>
+                            <div className="mt-1">
+                                <select
+                                    id="gender"
+                                    name="gender"
+                                    required
+                                    value={formData.gender}
+                                    onChange={handleChange}
+                                    className="input"
+                                >
+                                    <option value="">Select Gender</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                </select>
                             </div>
                         </div>
 

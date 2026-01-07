@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { studentAPI } from '../../services/api';
 
+/**
+ * THE ENTRANCE (Join)
+ * 
+ * This is the first stop for students! 
+ * Just like a physical exam, they need their "Seat Number" (Room Code) 
+ * and their "ID Card" (Student ID) to get in.
+ */
 const Join = () => {
     const [roomCode, setRoomCode] = useState('');
     const [studentId, setStudentId] = useState('');
@@ -9,6 +16,11 @@ const Join = () => {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
+    /**
+     * THE HANDSHAKE (handleJoin):
+     * When the student clicks "Enter", we ask the server: 
+     * "Is this student allowed in this room?"
+     */
     const handleJoin = async (e) => {
         e.preventDefault();
         setError('');
@@ -22,18 +34,24 @@ const Join = () => {
 
             if (response.data.success) {
                 const data = response.data.data;
-                // Store session data formatted for ExamPage
+
+                /**
+                 * THE TICKET (student_session):
+                 * We save their details in a "Digital Pocket" (localStorage) 
+                 * so that when they move to the Exam page, the app still remembers 
+                 * who they are and which quiz they are taking.
+                 */
                 const sessionData = {
                     student: {
-                        id: data.student_db_id,
-                        student_id: data.student_id,
+                        id: data.student_db_id, // Internal Database ID
+                        student_id: data.student_id, // Their actual School ID
                         name: data.student_name
                     },
                     quiz: {
                         id: data.quiz_id,
                         title: data.quiz_title,
                         time_limit: data.time_limit,
-                        room_code: roomCode, // Store this for waiting room redirection
+                        room_code: roomCode,
                         start_time: data.start_time,
                         server_time: data.server_time
                     }
@@ -41,9 +59,16 @@ const Join = () => {
 
                 localStorage.setItem('student_session', JSON.stringify(sessionData));
 
+                /**
+                 * WHERE TO NEXT?
+                 * If the teacher hasn't started the timer yet, they go to the WAITING ROOM.
+                 * If the exam has already begun, they jump straight into the ACTION!
+                 */
                 if (data.quiz_status === 'active') {
+                    // "Wait for the teacher to press START"
                     navigate(`/student/waiting/${data.quiz_id}`);
                 } else {
+                    // "The clock is ticking, let's go!"
                     navigate(`/exam/${roomCode}`);
                 }
             }

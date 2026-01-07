@@ -1,40 +1,46 @@
 <?php
+// This is one of the most important models! 
+// It handles everything related to a student's attempt at a quiz, including automatic grading.
 require_once __DIR__ . '/Model.php';
 
 class Result extends Model {
     protected $table = 'results';
     protected $fillable = ['student_id', 'quiz_id', 'score', 'total_points', 'status', 'started_at', 'submitted_at', 'is_paused', 'is_blocked'];
 
+    // Finds a specific result record using the student and the quiz they are taking.
     public function findByStudentAndQuiz($studentId, $quizId) {
         $stmt = $this->db->prepare("SELECT * FROM {$this->table} WHERE student_id = ? AND quiz_id = ?");
         $stmt->execute([$studentId, $quizId]);
         return $stmt->fetch();
     }
     
+    // This is the "Brain" of the grading system. 
+    // Every time a student clicks an answer, this code runs, checks if it's right, 
+    // and updates their score in real-time.
     public function saveAnswer($resultId, $questionId, $answer, $timeTaken = 0) {
         try {
-            // 1. Get correct answer for instant grading
+            // 1. First, we get the correct answer and question details from the DB.
             $stmt = $this->db->prepare("SELECT correct_answer, question_type, points FROM questions WHERE id = ?");
             $stmt->execute([$questionId]);
             $question = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if (!$question) return false;
             
-            // 1.5 Check if student is paused or blocked
+            // 1.5 Security Check: If the teacher paused or blocked this student, don't save their answer!
             $stmt = $this->db->prepare("SELECT is_paused, is_blocked FROM results WHERE id = ?");
             $stmt->execute([$resultId]);
             $res = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($res && ($res['is_paused'] || $res['is_blocked'])) {
-                return false; // Silently fail saving if paused/blocked
+                return false; 
             }
 
             $pointsAwarded = 0;
             $correctAns = $question['correct_answer'];
-            
-            // Default to 0 (Wrong) for auto-graded questions, NULL for manual
-            $isCorrect = 0;
+            $isCorrect = 0; // Assume it's wrong until proven right.
 
+            // 2. Here's the grading logic for different question types:
             if ($question['question_type'] === 'short_answer') {
+                // If it needs a human to grade it, we set is_correct to NULL (Wait for teacher).
                 if ($correctAns === 'MANUAL_GRADING') {
                     $isCorrect = null;
                 } elseif (trim(strtolower($answer)) === trim(strtolower($correctAns))) {
@@ -42,7 +48,7 @@ class Result extends Model {
                     $pointsAwarded = $question['points'];
                 }
             } elseif ($question['question_type'] === 'multiple_selection') {
-                // MSQ: exact match of sorted IDs
+                // For "Check all that apply", the student must get the exact set of answers.
                 $studentIds = explode(',', (string)$answer);
                 $correctIds = explode(',', (string)$correctAns);
                 sort($studentIds);
@@ -52,13 +58,15 @@ class Result extends Model {
                     $pointsAwarded = $question['points'];
                 }
             } else {
+                // Simple Multiple Choice or True/False.
                 if ((string)$answer === (string)$correctAns) {
                     $isCorrect = 1;
                     $pointsAwarded = $question['points'];
                 }
             }
 
-            // 2. Save detailed answer
+            // 3. Save the specific answer into the 'student_answers' table.
+            // We use ON DUPLICATE KEY UPDATE so if they change their mind, we just update the old answer.
             $stmt = $this->db->prepare("
                 INSERT INTO student_answers (result_id, question_id, student_answer, is_correct, points_awarded, time_taken_seconds, answered_at) 
                 VALUES (?, ?, ?, ?, ?, ?, NOW())
@@ -75,19 +83,18 @@ class Result extends Model {
         }
     }
 
+    // This is for the "Live Monitoring Board" that teachers see.
+    // It calculates how many questions each student has answered and their current score.
     public function getLiveStats($quizId) {
-        // 1. Get total question count
         $stmt = $this->db->prepare("SELECT COUNT(*) FROM questions WHERE quiz_id = ?");
         $stmt->execute([$quizId]);
         $totalQuestions = $stmt->fetchColumn();
 
-        // 2. Get questions IDs in order
         $stmt = $this->db->prepare("SELECT id FROM questions WHERE quiz_id = ? ORDER BY id ASC");
         $stmt->execute([$quizId]);
         $questionIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
-        // 3. Get student stats
-        // We order by status (submitted first?), then correct count, then time
+        // This giant query joins the results and students tables to get a full progress report.
         $sql = "SELECT s.id as student_db_id, s.name, s.student_id as student_display_id,
                 r.id as result_id, r.status, r.started_at, r.is_paused, r.is_blocked,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id) as answered_count,
@@ -107,12 +114,11 @@ class Result extends Model {
         $stmt->execute([$quizId]);
         $stats = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // 4. Enrich with percentage and cleanup
+        // We add some extra labels so the React frontend can easily show "Finished" or "Blocked".
         foreach ($stats as &$row) {
             $row['total_questions'] = (int)$totalQuestions;
             $row['percentage'] = $totalQuestions > 0 ? round(($row['correct_count'] / $totalQuestions) * 100, 1) : 0;
             
-            // Map status labels
             if ((int)$row['is_blocked'] === 1) {
                 $row['status_label'] = 'Blocked';
             } elseif ((int)$row['is_paused'] === 1) {
@@ -127,11 +133,12 @@ class Result extends Model {
         return $stats;
     }
     
+    // Finalize the quiz! This runs when the student clicks "Finish" or time runs out.
     public function submit($resultId) {
-        // 1. Calculate Results summary
+        // 1. Calculate the final score.
         $summary = $this->calculateSummary($resultId);
         
-        // 2. Update Result record
+        // 2. Mark it as 'submitted' and save the final numbers.
         return $this->update($resultId, [
             'status' => 'submitted',
             'submitted_at' => date('Y-m-d H:i:s'),
@@ -140,22 +147,20 @@ class Result extends Model {
         ]);
     }
 
+    // A helper function to add up all the points awarded for each question.
     public function calculateSummary($resultId) {
-        // Fetch Result to get Quiz ID
         $result = $this->find($resultId);
         if (!$result) return ['score' => 0, 'total_points' => 0, 'correct_answers' => 0, 'total_questions' => 0];
         
         $quizId = $result['quiz_id'];
         
-        // Fetch Questions
         $stmt = $this->db->prepare("SELECT id, question_type, correct_answer, points FROM questions WHERE quiz_id = ?");
         $stmt->execute([$quizId]);
         $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Fetch Student Answers
         $stmt = $this->db->prepare("SELECT question_id, student_answer FROM student_answers WHERE result_id = ?");
         $stmt->execute([$resultId]);
-        $answers = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); // [question_id => answer]
+        $answers = $stmt->fetchAll(PDO::FETCH_KEY_PAIR); 
         
         $score = 0;
         $totalPossible = 0;
@@ -170,18 +175,16 @@ class Result extends Model {
             $correctAns = $q['correct_answer'];
             $isCorrect = false;
 
+            // Simple grading logic repeated here for the final summary.
             if ($q['question_type'] === 'short_answer') {
                 if (trim(strtolower($studentAns)) === trim(strtolower($correctAns)) && $correctAns !== 'MANUAL_GRADING') {
                     $isCorrect = true;
                 }
             } elseif ($q['question_type'] === 'multiple_selection') {
-                // MSQ logic: both must match exactly (comma separated IDs)
                 $studentIds = explode(',', (string)$studentAns);
                 $correctIds = explode(',', (string)$correctAns);
-                
                 sort($studentIds);
                 sort($correctIds);
-                
                 if ($studentIds === $correctIds) {
                     $isCorrect = true;
                 }
@@ -205,6 +208,7 @@ class Result extends Model {
         ];
     }
 
+    // Gets results for a quiz, usually for the teacher's "Results" tab.
     public function getByQuizId($quizId) {
         $sql = "SELECT r.*, s.name as student_name, s.student_id as student_display_id 
                 FROM results r 
@@ -224,6 +228,7 @@ class Result extends Model {
         return $results;
     }
 
+    // Fetches everyone's scores for a specific class and quiz.
     public function getResultsByClassAndQuiz($classId, $quizId) {
         $sql = "SELECT r.id, r.score, r.status, r.total_points, r.submitted_at, r.started_at, r.is_blocked,
                        s.name as student_name, s.student_id as student_display_id,
@@ -243,17 +248,15 @@ class Result extends Model {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    // This is for the "Grading" page where the teacher sees every answer a specific student gave.
     public function getStudentResultDetails($resultId) {
-        // Get result info
         $result = $this->find($resultId);
         if (!$result) return null;
 
-        // Get student info
         $stmt = $this->db->prepare("SELECT name, student_id FROM students WHERE id = ?");
         $stmt->execute([$result['student_id']]);
         $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        // Get answers with question details
         $sql = "SELECT sa.*, q.question_text, q.question_type, q.options, q.correct_answer as correct_answer_text, q.points as max_points
                 FROM student_answers sa
                 JOIN questions q ON sa.question_id = q.id
@@ -271,9 +274,9 @@ class Result extends Model {
         ];
     }
 
+    // This runs when a teacher manually gives points for an essay or short answer.
     public function updateManualGrade($resultId, $questionId, $points) {
         try {
-            // 0. Validate points against max points
             $stmt = $this->db->prepare("SELECT points FROM questions WHERE id = ?");
             $stmt->execute([$questionId]);
             $maxPoints = $stmt->fetchColumn();
@@ -284,20 +287,17 @@ class Result extends Model {
 
             $this->db->beginTransaction();
 
-            // 1. Update the student_answer for the specific question
+            // 1. Update the awarded points for this specific answer.
             $stmt = $this->db->prepare("UPDATE student_answers SET points_awarded = ?, is_correct = ? WHERE result_id = ? AND question_id = ?");
-            
-            // Determine correctness
             $isCorrect = $points > 0 ? 1 : 0;
-            
             $stmt->execute([$points, $isCorrect, $resultId, $questionId]);
 
-            // 2. Recalculate total score for the result
+            // 2. Recalculate the student's TOTAL score for the entire quiz.
             $stmt = $this->db->prepare("SELECT SUM(points_awarded) FROM student_answers WHERE result_id = ?");
             $stmt->execute([$resultId]);
             $newTotalScore = $stmt->fetchColumn() ?: 0;
 
-            // 3. Update result record
+            // 3. Update the final record.
             $this->update($resultId, ['score' => $newTotalScore]);
 
             $this->db->commit();
@@ -306,7 +306,7 @@ class Result extends Model {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            throw $e; // Re-throw to be caught by Controller
+            throw $e; 
         }
     }
 }
