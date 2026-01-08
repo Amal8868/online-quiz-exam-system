@@ -6,6 +6,7 @@ require_once __DIR__ . '/../models/Quiz.php';
 require_once __DIR__ . '/../models/Question.php';
 require_once __DIR__ . '/../models/Student.php';
 require_once __DIR__ . '/../models/Result.php';
+require_once __DIR__ . '/../models/User.php';
 
 class QuizController extends BaseController {
     
@@ -289,11 +290,35 @@ class QuizController extends BaseController {
                 if (count($data) < 2) continue;
                 
                 $studentIdStr = trim($data[0]);
-                $name = trim($data[1]);
+                $fullName = trim($data[1]);
                 
-                if (empty($studentIdStr) || empty($name)) continue;
+                if (empty($studentIdStr) || empty($fullName)) continue;
                 
-                $studentDbId = $studentModel->findOrCreate($studentIdStr, $name);
+                // Name splitter logic.
+                $parts = explode(' ', $fullName, 2);
+                $firstName = $parts[0];
+                $lastName = $parts[1] ?? '';
+
+                $userModel = new User();
+                $student = $userModel->findByUserId($studentIdStr);
+                $studentDbId = null;
+
+                if ($student) {
+                    $userModel->updateUser($student['id'], [
+                        'first_name' => $firstName,
+                        'last_name' => $lastName
+                    ]);
+                    $studentDbId = $student['id'];
+                } else {
+                    $studentDbId = $userModel->createUser([
+                        'user_id' => $studentIdStr,
+                        'first_name' => $firstName,
+                        'last_name' => $lastName,
+                        'user_type' => 'Student',
+                        'status' => 'Active'
+                    ]);
+                }
+
                 if ($quizModel->addAllowedStudent($quizId, $studentDbId)) {
                     $addedCount++;
                 }

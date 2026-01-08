@@ -16,9 +16,13 @@ class AuthMiddleware {
                     $requiredRoles = [$requiredRoles];
                 }
                 
-                if (!isset($_SESSION['role']) || !in_array($_SESSION['role'], $requiredRoles)) {
+                // Case-insensitive check
+                $userRole = strtolower($_SESSION['role'] ?? '');
+                $allowedRoles = array_map('strtolower', $requiredRoles);
+                
+                if (!isset($_SESSION['role']) || !in_array($userRole, $allowedRoles)) {
                     http_response_code(403);
-                    echo json_encode(['error' => 'Forbidden - Insufficient permissions (Session)']);
+                    echo json_encode(['error' => 'Forbidden - Insufficient permissions (Session)', 'debug_role' => $_SESSION['role'] ?? 'NULL', 'required' => $requiredRoles]);
                     exit();
                 }
             }
@@ -44,7 +48,11 @@ class AuthMiddleware {
                     if (!is_array($requiredRoles)) {
                         $requiredRoles = [$requiredRoles];
                     }
-                    if (!in_array($decoded->role, $requiredRoles)) {
+                    
+                    $tokenRole = strtolower($decoded->role ?? '');
+                    $allowedRoles = array_map('strtolower', $requiredRoles);
+                    
+                    if (!in_array($tokenRole, $allowedRoles)) {
                         http_response_code(403);
                         echo json_encode(['error' => 'Forbidden - Insufficient permissions (Cookie)']);
                         exit();
@@ -86,10 +94,15 @@ class AuthMiddleware {
             }
  
             // Check if the user has one of the required roles
-            if ($requiredRoles && (!isset($decoded->role) || !in_array($decoded->role, $requiredRoles))) {
-                http_response_code(403);
-                echo json_encode(['error' => 'Forbidden - Insufficient permissions']);
-                exit();
+            if ($requiredRoles) {
+                $tokenRole = strtolower($decoded->role ?? '');
+                $allowedRoles = array_map('strtolower', $requiredRoles);
+                
+                if (!isset($decoded->role) || !in_array($tokenRole, $allowedRoles)) {
+                    http_response_code(403);
+                    echo json_encode(['error' => 'Forbidden - Insufficient permissions']);
+                    exit();
+                }
             }
             
             // Return the decoded token data

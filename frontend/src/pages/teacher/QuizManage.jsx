@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Dialog, Transition } from '@headlessui/react';
+import { Dialog, Transition, DialogPanel, DialogTitle, TransitionChild } from '@headlessui/react';
 import {
-    AcademicCapIcon,
-    PlusIcon,
     DocumentTextIcon,
+    PlusIcon,
     ClockIcon,
     MagnifyingGlassIcon,
     FunnelIcon,
@@ -20,7 +19,8 @@ import {
     CheckBadgeIcon,
     ClipboardDocumentListIcon,
     ChartBarIcon,
-    ExclamationTriangleIcon
+    ExclamationTriangleIcon,
+    XMarkIcon
 } from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
 import ConfirmationModal from '../../components/ConfirmationModal';
@@ -37,6 +37,22 @@ import AlertModal from '../../components/AlertModal';
  * 2. QUESTIONS: The exam builder.
  * 3. LIVE: Real-time spying... I mean, monitoring of students!
  */
+/**
+ * DEFAULT / EMPTY QUIZ STRUCTURE
+ * Moved outside component to avoid recreation on every render
+ */
+const EMPTY_QUIZ = {
+    id: null,
+    title: 'Quiz Unavailable',
+    description: 'This quiz may have been deleted or is not loading.',
+    status: 'archived',
+    duration_minutes: 0,
+    total_points: 0,
+    room_code: '---',
+    questions: [],
+    questions_count: 0
+};
+
 const QuizManage = () => {
     const { quizId } = useParams();
 
@@ -44,7 +60,7 @@ const QuizManage = () => {
     const [quiz, setQuiz] = useState(null);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview'); // Which part of the tower are we in?
-    const [error, setError] = useState(null);
+    // Error state removed as we use Empty State pattern
 
     // LIVE MONITORING: Keeping track of students currently taking the quiz.
     const [liveStats, setLiveStats] = useState([]);
@@ -179,13 +195,20 @@ const QuizManage = () => {
         if (!quizId) return;
         try {
             const response = await teacherAPI.getQuiz(quizId);
-            setQuiz(response.data.data);
-            if (loading) setLoading(false);
+            const data = response.data.data;
+            setQuiz(data);
+            // Update persisted quiz info so Sidebar stays synced
+            localStorage.setItem('lastQuizId', data.id);
+            localStorage.setItem('lastQuizTitle', data.title);
+            window.dispatchEvent(new Event('quizInfoUpdated'));
         } catch (error) {
-            setError(error.response?.data?.message || 'Failed to load quiz details.');
+            console.error("Quiz not found or deleted", error);
+            // Fallback: Set a "Mock" empty quiz so the UI doesn't crash or block.
+            setQuiz(EMPTY_QUIZ);
+        } finally {
             setLoading(false);
         }
-    }, [quizId, loading]);
+    }, [quizId]); // Removed 'loading' dependency to prevent loops
 
     const fetchMonitoring = useCallback(async () => {
         if (!quizId) return;
@@ -443,40 +466,20 @@ const QuizManage = () => {
         </div>
     );
 
-    if (error) return (
-        <div className="max-w-2xl mx-auto mt-12 p-8 bg-red-50 border border-red-200 rounded-2xl text-center">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AcademicCapIcon className="h-8 w-8 text-red-600" />
-            </div>
-            <h2 className="text-xl font-bold text-red-800 mb-2">Oops! Something went wrong</h2>
-            <p className="text-red-600 mb-6">{error}</p>
-            <div className="space-y-4">
-                <button
-                    onClick={() => { setError(null); setLoading(true); fetchQuiz(); }}
-                    className="btn bg-red-600 hover:bg-red-700 text-white px-8 py-2 rounded-lg"
-                >
-                    Retry Loading
-                </button>
-            </div>
-            <AlertModal
-                isOpen={alertConfig.isOpen}
-                onClose={closeAlert}
-                title={alertConfig.title}
-                message={alertConfig.message}
-                type={alertConfig.type}
-                buttonText={alertConfig.buttonText}
-            />
-        </div>
-    );
 
-    if (!quiz) return <div className="text-center py-12">Quiz not found</div>;
+    // SAFETY NET: If loading is done but quiz is still null (shouldn't happen with above fix, but safe is safe), use emptyQuiz.
+    if (!quiz) {
+        return <p>Loading quiz details...</p>;
+    }
+
 
     return (
         <div className="space-y-8 pb-12">
             {/* Time Adjustment Modal */}
-            <Transition.Root show={timeAdjustModalOpen} as={Fragment}>
-                <Dialog as="div" className="relative z-50" onClose={setTimeAdjustModalOpen}>
-                    <Transition.Child
+            {/* Time Adjustment Modal */}
+            <Transition show={timeAdjustModalOpen} as={Fragment}>
+                <Dialog as="div" className="relative z-50" onClose={() => setTimeAdjustModalOpen(false)}>
+                    <TransitionChild
                         as={Fragment}
                         enter="ease-out duration-300"
                         enterFrom="opacity-0"
@@ -485,12 +488,12 @@ const QuizManage = () => {
                         leaveFrom="opacity-100"
                         leaveTo="opacity-0"
                     >
-                        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" />
-                    </Transition.Child>
+                        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm transition-opacity" />
+                    </TransitionChild>
 
                     <div className="fixed inset-0 z-10 w-screen overflow-y-auto">
                         <div className="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
-                            <Transition.Child
+                            <TransitionChild
                                 as={Fragment}
                                 enter="ease-out duration-300"
                                 enterFrom="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
@@ -499,43 +502,38 @@ const QuizManage = () => {
                                 leaveFrom="opacity-100 translate-y-0 sm:scale-100"
                                 leaveTo="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
                             >
-                                <Dialog.Panel className="relative transform overflow-hidden rounded-2xl bg-white dark:bg-gray-800 text-left shadow-2xl transition-all sm:my-8 sm:w-full sm:max-w-lg border border-gray-100 dark:border-gray-700">
-                                    <div className="absolute right-0 top-0 pr-4 pt-4 block z-10">
+                                <DialogPanel className="relative transform overflow-hidden rounded-2xl bg-white dark:bg-gray-800 text-left shadow-2xl transition-all sm:my-8 w-full max-w-sm border border-gray-100 dark:border-gray-700">
+                                    <div className="absolute right-0 top-0 pr-3 pt-3 block z-10">
                                         <button
                                             type="button"
                                             className="rounded-md bg-white dark:bg-gray-800 text-gray-400 hover:text-gray-500 focus:outline-none"
                                             onClick={() => setTimeAdjustModalOpen(false)}
                                         >
                                             <span className="sr-only">Close</span>
-                                            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
+                                            <XMarkIcon className="h-5 w-5" aria-hidden="true" />
                                         </button>
                                     </div>
 
-                                    <div className="bg-white dark:bg-gray-800 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                    <div className="bg-white dark:bg-gray-800 p-5">
                                         <div className="flex flex-col items-center">
                                             {/* Hero Icon */}
-                                            <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20 mb-5 shadow-inner">
-                                                <ClockIcon className="h-10 w-10 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
+                                            <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20 mb-4 shadow-inner">
+                                                <ClockIcon className="h-7 w-7 text-indigo-600 dark:text-indigo-400" aria-hidden="true" />
                                             </div>
 
-                                            <div className="text-center w-full max-w-sm">
-                                                <Dialog.Title as="h3" className="text-2xl font-black leading-6 text-gray-900 dark:text-white tracking-tight mb-2">
-                                                    Adjust Exam Duration
-                                                </Dialog.Title>
-                                                <div className="mt-2 text-gray-500 dark:text-gray-400 mb-8">
-                                                    <p className="text-sm">Fine-tune the remaining time for all students.</p>
+                                            <div className="text-center w-full">
+                                                <DialogTitle as="h3" className="text-lg font-black leading-6 text-gray-900 dark:text-white tracking-tight mb-1">
+                                                    Adjust Duration
+                                                </DialogTitle>
+                                                <div className="mb-6 text-gray-500 dark:text-gray-400">
+                                                    <p className="text-xs">Modify time for all students.</p>
                                                 </div>
 
-                                                <div className="w-full relative mb-8 group">
-                                                    <label className="absolute -top-2.5 left-4 bg-white dark:bg-gray-800 px-2 text-xs font-bold text-indigo-600 uppercase tracking-widest z-10">
-                                                        Minutes to Adjust
-                                                    </label>
-                                                    <div className="relative flex items-center">
+                                                <div className="w-full relative mb-6 group">
+                                                    <div className="relative flex items-center justify-center">
                                                         <button
                                                             onClick={() => setAdjustAmount(Math.max(1, adjustAmount - 1))}
-                                                            className="absolute left-2 p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                                            className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
                                                         >
                                                             <MinusIcon className="w-5 h-5" />
                                                         </button>
@@ -545,32 +543,31 @@ const QuizManage = () => {
                                                             max="60"
                                                             value={adjustAmount}
                                                             onChange={(e) => setAdjustAmount(Math.max(1, parseInt(e.target.value) || 0))}
-                                                            className="w-full text-center text-4xl font-black border-2 border-gray-100 dark:border-gray-700 rounded-2xl py-4 focus:border-indigo-500 outline-none dark:bg-gray-800 dark:text-white transition-all peer group-hover:border-gray-200"
+                                                            className="w-24 text-center text-3xl font-black border-none bg-transparent focus:ring-0 outline-none dark:text-white mx-2"
                                                             placeholder="5"
                                                         />
                                                         <button
                                                             onClick={() => setAdjustAmount(adjustAmount + 1)}
-                                                            className="absolute right-2 p-2 text-gray-400 hover:text-indigo-600 transition-colors"
+                                                            className="p-2 text-gray-400 hover:text-indigo-600 transition-colors"
                                                         >
                                                             <PlusIcon className="w-5 h-5" />
                                                         </button>
                                                     </div>
+                                                    <div className="text-xs font-bold text-indigo-600 uppercase tracking-widest mt-1">
+                                                        Minutes
+                                                    </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-4 w-full">
+                                                <div className="grid grid-cols-2 gap-3 w-full">
                                                     <button
                                                         onClick={() => {
                                                             handleTimeAdjustment(adjustAmount);
                                                             setTimeAdjustModalOpen(false);
                                                         }}
                                                         disabled={isTimeAdjusting || adjustAmount <= 0}
-                                                        className="group relative flex flex-col items-center justify-center p-5 rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-2 border-green-100 dark:border-green-900/30 hover:border-green-300 dark:hover:border-green-700 hover:shadow-lg hover:shadow-green-100/50 dark:hover:shadow-none transition-all duration-300 active:scale-95"
+                                                        className="group flex flex-col items-center justify-center p-3 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/30 transition-all active:scale-95"
                                                     >
-                                                        <div className="p-2 bg-white dark:bg-gray-800 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform duration-300">
-                                                            <PlusIcon className="h-6 w-6 text-green-600" />
-                                                        </div>
-                                                        <span className="font-black text-green-700 dark:text-green-400 text-lg">Add Time</span>
-                                                        <span className="text-xs text-green-600/60 dark:text-green-400/60 font-medium mt-1 uppercase tracking-wide">Extend Exam</span>
+                                                        <span className="font-bold text-green-700 dark:text-green-400 text-sm">Add Time</span>
                                                     </button>
 
                                                     <button
@@ -579,33 +576,29 @@ const QuizManage = () => {
                                                             setTimeAdjustModalOpen(false);
                                                         }}
                                                         disabled={isTimeAdjusting || adjustAmount <= 0}
-                                                        className="group relative flex flex-col items-center justify-center p-5 rounded-2xl bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border-2 border-red-100 dark:border-red-900/30 hover:border-red-300 dark:hover:border-red-700 hover:shadow-lg hover:shadow-red-100/50 dark:hover:shadow-none transition-all duration-300 active:scale-95"
+                                                        className="group flex flex-col items-center justify-center p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/30 transition-all active:scale-95"
                                                     >
-                                                        <div className="p-2 bg-white dark:bg-gray-800 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform duration-300">
-                                                            <MinusIcon className="h-6 w-6 text-red-600" />
-                                                        </div>
-                                                        <span className="font-black text-red-700 dark:text-red-400 text-lg">Remove Time</span>
-                                                        <span className="text-xs text-red-600/60 dark:text-red-400/60 font-medium mt-1 uppercase tracking-wide">Shorten Exam</span>
+                                                        <span className="font-bold text-red-700 dark:text-red-400 text-sm">Remove Time</span>
                                                     </button>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
+                                    <div className="bg-gray-50 dark:bg-gray-700/30 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-5">
                                         <button
                                             type="button"
-                                            className="mt-3 inline-flex w-full justify-center rounded-xl bg-white dark:bg-gray-800 px-3 py-2 text-sm font-bold text-gray-500 hover:text-gray-700 dark:text-gray-400 shadow-sm ring-1 ring-inset ring-gray-200 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 sm:mt-0 sm:w-auto uppercase tracking-wider"
+                                            className="w-full inline-flex justify-center rounded-lg bg-white dark:bg-gray-800 px-3 py-2 text-xs font-bold text-gray-700 dark:text-gray-300 shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 sm:w-auto"
                                             onClick={() => setTimeAdjustModalOpen(false)}
                                         >
-                                            Cancel
+                                            Dismiss
                                         </button>
                                     </div>
-                                </Dialog.Panel>
-                            </Transition.Child>
+                                </DialogPanel>
+                            </TransitionChild>
                         </div>
                     </div>
                 </Dialog>
-            </Transition.Root>
+            </Transition>
             <AlertModal
                 isOpen={alertConfig.isOpen}
                 onClose={closeAlert}
@@ -706,7 +699,7 @@ const QuizManage = () => {
                 )}
 
                 {/* 2. QUESTIONS: The list of questions the teacher has created. */}
-                
+
                 {activeTab === 'questions' && (
                     <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6 max-w-4xl mx-auto w-full">
                         <div className="flex justify-between items-center mb-4">
@@ -1143,3 +1136,4 @@ const QuizManage = () => {
 
 
 export default QuizManage;
+

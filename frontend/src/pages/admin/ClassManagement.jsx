@@ -2,6 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { adminAPI } from '../../services/api';
 import { PlusIcon, PencilSquareIcon, TrashIcon, UserPlusIcon, UserGroupIcon, AcademicCapIcon } from '@heroicons/react/24/outline';
 
+const Modal = ({ show, onClose, title, children }) => {
+    if (!show) return null;
+    return (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen p-4">
+                <div className="fixed inset-0 bg-gray-500 opacity-75" onClick={onClose}></div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl transform transition-all max-w-lg w-full z-50">
+                    <div className="px-4 py-5 sm:p-6">
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">{title}</h3>
+                        {children}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const ClassManagement = () => {
     const [classes, setClasses] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -144,22 +161,7 @@ const ClassManagement = () => {
         setShowEditModal(true);
     };
 
-    const Modal = ({ show, onClose, title, children }) => {
-        if (!show) return null;
-        return (
-            <div className="fixed inset-0 z-50 overflow-y-auto">
-                <div className="flex items-center justify-center min-h-screen p-4">
-                    <div className="fixed inset-0 bg-gray-500 opacity-75" onClick={onClose}></div>
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl transform transition-all max-w-lg w-full z-50">
-                        <div className="px-4 py-5 sm:p-6">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">{title}</h3>
-                            {children}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
+
 
     const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'details'
     const [selectedClass, setSelectedClass] = useState(null);
@@ -301,7 +303,7 @@ const ClassManagement = () => {
                             <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
                                 <thead className="bg-gray-50/50 dark:bg-gray-800/50">
                                     <tr>
-                                        <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Student ID</th>
+
                                         <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Name</th>
                                         <th className="px-6 py-4 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Email</th>
                                     </tr>
@@ -314,7 +316,7 @@ const ClassManagement = () => {
                                     ) : classStudents.length > 0 ? (
                                         classStudents.map(student => (
                                             <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                                                <td className="px-6 py-4 dark:text-white text-sm font-mono text-primary-600 dark:text-primary-400">{student.student_id || 'N/A'}</td>
+
                                                 <td className="px-6 py-4 dark:text-white text-sm font-bold">{student.name}</td>
                                                 <td className="px-6 py-4 text-gray-500 dark:text-gray-400 text-sm">{student.email}</td>
                                             </tr>
@@ -370,7 +372,7 @@ const ClassManagement = () => {
                     {formSuccess && <p className="text-green-500 text-sm">{formSuccess}</p>}
                     <select value={studentAssignId} onChange={(e) => setStudentAssignId(e.target.value)} className="w-full border rounded p-2 dark:bg-gray-700 dark:text-white">
                         <option value="">Select Student</option>
-                        {students.map(s => <option key={s.id} value={s.id}>{s.user_id} - {s.first_name} {s.last_name}</option>)}
+                        {students.map(s => <option key={s.id} value={s.id}>{s.email} - {s.first_name} {s.last_name}</option>)}
                     </select>
                     <button type="submit" className="w-full bg-green-600 text-white rounded p-2">Assign</button>
                 </form>

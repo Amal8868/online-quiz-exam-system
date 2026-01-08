@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { adminAPI } from '../../services/api';
 import { PlusIcon, PencilSquareIcon, TrashIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 
@@ -16,13 +16,6 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Grab the current logged-in user (The Admin).
-    const user = JSON.parse(
-        (localStorage.getItem('token') ? localStorage.getItem('user') : sessionStorage.getItem('user')) ||
-        localStorage.getItem('user') ||
-        sessionStorage.getItem('user') ||
-        '{}'
-    );
 
     // Modal States: Controls for the "New User" and "Credentials" pop-ups.
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -62,19 +55,6 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
         profile_pic: null
     };
 
-    // ON LOAD: Fetch the list of users from the server.
-    useEffect(() => {
-        fetchUsers();
-        setFilterType(userType === 'All' ? 'All' : userType);
-
-        if (userType !== 'All') {
-            setFormData(prev => ({ ...prev, user_type: userType }));
-        }
-
-        setFormError('');
-        setFormSuccess('');
-        setFieldErrors({});
-    }, [filterType, viewMode, userType, showCreateModal]);
 
     // Cleanup: Hide messages after 5 seconds.
     useEffect(() => {
@@ -87,7 +67,7 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
         }
     }, [formSuccess, formError]);
 
-    const fetchUsers = async () => {
+    const fetchUsers = useCallback(async () => {
         setLoading(true);
         try {
             const typeToFetch = userType !== 'All' ? userType : (filterType === 'All' ? null : filterType);
@@ -101,7 +81,24 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [userType, filterType]);
+
+    // ON LOAD: Fetch the list of users from the server.
+    // ON LOAD: Fetch the list of users from the server.
+    useEffect(() => {
+        fetchUsers();
+    }, [fetchUsers]);
+
+    // Reset filters when the main tab (User Type) changes
+    useEffect(() => {
+        setFilterType(userType === 'All' ? 'All' : userType);
+        if (userType !== 'All') {
+            setFormData(prev => ({ ...prev, user_type: userType }));
+        }
+        setFormError('');
+        setFormSuccess('');
+        setFieldErrors({});
+    }, [userType, viewMode, showCreateModal]);
 
     /**
      * INPUT CHECKER (validateField):
@@ -116,8 +113,8 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
             }
         } else if (name === 'phone' && value) {
             const phone = value.replace(/\s+/g, '');
-            if (!/^((\+252)|0|)(61|62|68|77)\d{7}$/.test(phone)) {
-                error = 'Invalid Somali phone format';
+            if (!/^(0)?(61|62|68|77)\d{7}$/.test(phone)) {
+                error = 'Invalid phone format';
             }
         } else if (name === 'email' && value) {
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
@@ -248,11 +245,40 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
         setFormError('');
         setFormSuccess('');
 
-        // Pre-flight check: Are there any mistakes in the form?
+        // Custom Validation: Check for empty required fields
+        const errors = {};
+        if (!formData.first_name) errors.first_name = 'First Name is required';
+        if (!formData.last_name) errors.last_name = 'Last Name is required';
+        if (!formData.email) errors.email = 'Email is required';
+        if (!formData.phone) errors.phone = 'Phone number is required';
+        if (userType === 'All' && !formData.user_type) errors.user_type = 'User Type is required';
+
+        // Check username/password for Admin or new Teacher
+        if ((formData.user_type === 'Admin') || (editingUserId && formData.user_type !== 'Teacher' && formData.user_type !== 'Student')) {
+            if (!formData.username) errors.username = 'Username is required';
+        }
+
+        if (!editingUserId && formData.user_type === 'Admin') {
+            if (!formData.password) errors.password = 'Password is required';
+        }
+
+
+        // Merge with existing format validations
         const isFirstNameValid = validateField('first_name', formData.first_name);
         const isLastNameValid = validateField('last_name', formData.last_name);
         const isPhoneValid = validateField('phone', formData.phone);
         const isEmailValid = validateField('email', formData.email);
+
+        if (!isFirstNameValid || !isLastNameValid || !isPhoneValid || !isEmailValid) {
+            // Field errors are already set by validateField, but we need to combine them if any refer to the same field (though 'required' usually takes precedence)
+            // For now, just ensure we don't proceed.
+        }
+
+        // If we found empty required fields, update state and stop.
+        if (Object.keys(errors).length > 0) {
+            setFieldErrors(prev => ({ ...prev, ...errors }));
+            return;
+        }
 
         if (!isFirstNameValid || !isLastNameValid || !isPhoneValid || !isEmailValid) {
             setFormError('Please fix the errors in the form before submitting.');
@@ -263,8 +289,6 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
             const data = new FormData();
             Object.keys(formData).forEach(key => {
                 if (formData[key] !== null && formData[key] !== undefined) {
-                    // Password Trick: If we're just editing an old user and left 
-                    // the password blank, don't send anything (keeps the old password).
                     if (key === 'password' && editingUserId && !formData[key]) return;
                     data.append(key, formData[key]);
                 }
@@ -279,13 +303,6 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
 
             if (res.data.success) {
                 setFormSuccess(editingUserId ? 'User updated successfully!' : 'User created successfully!');
-
-                /**
-                 * SURPRISE BOX (showGeneratedModal):
-                 * If we just made a new teacher, the system automatically 
-                 * builds their Username and Password. We show them here 
-                 * so the Admin can write them down!
-                 */
                 if (!editingUserId && res.data.data?.generated) {
                     setGeneratedCreds(res.data.data.generated);
                     setShowGeneratedModal(true);
@@ -312,10 +329,16 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
         return userId.includes(searchLower) ||
             fullName.includes(searchLower) ||
             username.includes(searchLower);
+    }).sort((a, b) => {
+        const typeOrder = { 'Admin': 1, 'Teacher': 2, 'Student': 3 };
+        const typeA = typeOrder[a.user_type] || 4;
+        const typeB = typeOrder[b.user_type] || 4;
+        if (typeA !== typeB) return typeA - typeB;
+        return a.id - b.id;
     });
 
     const renderForm = () => (
-        <form onSubmit={handleSubmit} className="flex flex-col h-full">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full" noValidate>
             <div className={`bg-white dark:bg-gray-800 flex-1 ${viewMode === 'register' ? 'p-6 rounded-lg shadow-md' : 'px-4 pt-5 pb-4 sm:p-6 sm:pb-4'}`}>
                 {viewMode === 'register' && <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">{editingUserId ? 'Edit User' : `Register New ${userType !== 'All' ? userType : 'User'}`}</h2>}
                 {viewMode !== 'register' && <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">{editingUserId ? 'Edit User' : `Register New ${userType !== 'All' ? userType : 'User'}`}</h3>}
@@ -391,7 +414,7 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
                         </div>
                     )}
 
-                    {formData.user_type === 'Admin' || (editingUserId && formData.user_type !== 'Teacher') ? (
+                    {formData.user_type === 'Admin' ? (
                         <>
                             <div className="col-span-2">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Username *</label>
@@ -420,7 +443,7 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
                     </div>
 
                     <div className="col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone *</label>
                         <input
                             type="text"
                             name="phone"
@@ -511,7 +534,8 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">ID</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Username/Email</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Username</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Email</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Phone</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Password</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
@@ -537,13 +561,18 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {user.username || user.email || '-'}
+                                            {user.user_type === 'Student' ? '-' : (user.username || '-')}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                            {user.email || '-'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                             {user.phone || '-'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono">
-                                            {user.password ? (
+                                            {user.user_type === 'Student' ? (
+                                                <span className="text-gray-300">-</span>
+                                            ) : user.password ? (
                                                 <span title={user.password}>
                                                     {user.password.substring(0, 10)}...
                                                 </span>
@@ -596,122 +625,128 @@ const UserManagement = ({ viewMode = 'list', userType = 'All' }) => {
             </div>
 
             {/* Create User Modal */}
-            {showCreateModal && (
-                <div className="fixed inset-0 z-50 overflow-y-auto">
-                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                        <div className="fixed inset-0 transition-opacity" aria-hidden="true">
-                            <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={closeModal}></div>
-                        </div>
-                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                        <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-                            {renderForm()}
+            {
+                showCreateModal && (
+                    <div className="fixed inset-0 z-50 overflow-y-auto">
+                        <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+                                <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={closeModal}></div>
+                            </div>
+                            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                                {renderForm()}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Delete Confirmation Modal */}
-            {showDeleteModal && (
-                <div className="fixed inset-0 z-50 overflow-y-auto">
-                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                        <div className="fixed inset-0 transition-opacity" aria-hidden="true">
-                            <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={closeDeleteModal}></div>
-                        </div>
-                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                        <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-                            <div className="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                                <div className="sm:flex sm:items-start">
-                                    <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-                                        <TrashIcon className="h-6 w-6 text-red-600" aria-hidden="true" />
-                                    </div>
-                                    <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                                        <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">Delete {userType !== 'All' ? userType : 'User'}</h3>
-                                        <div className="mt-2">
-                                            <p className="text-sm text-gray-500 dark:text-gray-400">
-                                                Are you sure you want to delete {userToDelete?.first_name} {userToDelete?.last_name}? This action cannot be undone.
-                                            </p>
+            {
+                showDeleteModal && (
+                    <div className="fixed inset-0 z-50 overflow-y-auto">
+                        <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+                                <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={closeDeleteModal}></div>
+                            </div>
+                            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                                <div className="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                    <div className="sm:flex sm:items-start">
+                                        <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                                            <TrashIcon className="h-6 w-6 text-red-600" aria-hidden="true" />
+                                        </div>
+                                        <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                                            <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">Delete {userType !== 'All' ? userType : 'User'}</h3>
+                                            <div className="mt-2">
+                                                <p className="text-sm text-gray-500 dark:text-gray-400">
+                                                    Are you sure you want to delete {userToDelete?.first_name} {userToDelete?.last_name}? This action cannot be undone.
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                                <button
-                                    type="button"
-                                    onClick={confirmDelete}
-                                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm"
-                                >
-                                    Delete
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={closeDeleteModal}
-                                    className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* Generated Credentials Modal */}
-            {showGeneratedModal && generatedCreds && (
-                <div className="fixed inset-0 z-50 overflow-y-auto">
-                    <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                        <div className="fixed inset-0 transition-opacity" aria-hidden="true">
-                            <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={() => { setShowGeneratedModal(false); fetchUsers(); }}></div>
-                        </div>
-                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                        <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md sm:w-full">
-                            <div className="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                                <div className="sm:flex sm:items-start">
-                                    <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
-                                        <PlusIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
-                                    </div>
-                                    <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                                        <h3 className="text-lg leading-6 font-bold text-gray-900 dark:text-white">User Created Successfully!</h3>
-                                        {generatedCreds?.username?.startsWith('tea_') && (
-                                            <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
-                                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Please share these credentials with the user:</p>
-                                                <div className="space-y-3">
-                                                    <div>
-                                                        <span className="text-xs font-semibold text-gray-400 uppercase">Username</span>
-                                                        <p className="text-lg font-mono font-bold text-primary-600 dark:text-primary-400">{generatedCreds.username}</p>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-xs font-semibold text-gray-400 uppercase">Temporary Password</span>
-                                                        <p className="text-lg font-mono font-bold text-primary-600 dark:text-primary-400">{generatedCreds.password}</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {generatedCreds?.username?.startsWith('usr_') && (
-                                            <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-                                                Student created. They can join exams using their Student ID.
-                                            </p>
-                                        )}
-                                        {generatedCreds?.username?.startsWith('tea_') && (
-                                            <p className="mt-4 text-xs text-red-500 font-medium">
-                                                Important: This password will not be shown again.
-                                            </p>
-                                        )}
-                                    </div>
+                                <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                                    <button
+                                        type="button"
+                                        onClick={confirmDelete}
+                                        className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm"
+                                    >
+                                        Delete
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={closeDeleteModal}
+                                        className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+                                    >
+                                        Cancel
+                                    </button>
                                 </div>
                             </div>
-                            <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                                <button
-                                    type="button"
-                                    onClick={() => { setShowGeneratedModal(false); fetchUsers(); }}
-                                    className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:ml-3 sm:w-auto sm:text-sm"
-                                >
-                                    Done
-                                </button>
+                        </div>
+                    </div>
+                )
+            }
+            {/* Generated Credentials Modal */}
+            {
+                showGeneratedModal && generatedCreds && (
+                    <div className="fixed inset-0 z-50 overflow-y-auto">
+                        <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                            <div className="fixed inset-0 transition-opacity" aria-hidden="true">
+                                <div className="absolute inset-0 bg-gray-500 opacity-75" onClick={() => { setShowGeneratedModal(false); fetchUsers(); }}></div>
+                            </div>
+                            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                            <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md sm:w-full">
+                                <div className="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                                    <div className="sm:flex sm:items-start">
+                                        <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
+                                            <PlusIcon className="h-6 w-6 text-green-600" aria-hidden="true" />
+                                        </div>
+                                        <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                                            <h3 className="text-lg leading-6 font-bold text-gray-900 dark:text-white">User Created Successfully!</h3>
+                                            {(generatedCreds?.username?.startsWith('tea_') || generatedCreds?.username?.startsWith('TCH-')) && (
+                                                <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                                                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Please share these credentials with the user:</p>
+                                                    <div className="space-y-3">
+                                                        <div>
+                                                            <span className="text-xs font-semibold text-gray-400 uppercase">Username</span>
+                                                            <p className="text-lg font-mono font-bold text-primary-600 dark:text-primary-400">{generatedCreds.username}</p>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-xs font-semibold text-gray-400 uppercase">Temporary Password</span>
+                                                            <p className="text-lg font-mono font-bold text-primary-600 dark:text-primary-400">{generatedCreds.password}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {generatedCreds?.username?.startsWith('usr_') && (
+                                                <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                                                    Student created. They can join exams using their Student ID.
+                                                </p>
+                                            )}
+                                            {(generatedCreds?.username?.startsWith('tea_') || generatedCreds?.username?.startsWith('TCH-')) && (
+                                                <p className="mt-4 text-xs text-red-500 font-medium">
+                                                    Important: This password will not be shown again.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                                    <button
+                                        type="button"
+                                        onClick={() => { setShowGeneratedModal(false); fetchUsers(); }}
+                                        className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 sm:ml-3 sm:w-auto sm:text-sm"
+                                    >
+                                        Done
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 

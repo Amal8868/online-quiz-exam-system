@@ -5,6 +5,7 @@ require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/Student.php';
 require_once __DIR__ . '/../models/Quiz.php';
 require_once __DIR__ . '/../models/Result.php';
+require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../models/Question.php';
 
 class StudentController extends BaseController {
@@ -41,29 +42,34 @@ class StudentController extends BaseController {
                 return $this->error('Exam is not yet active or has already finished.', 403);
             }
             
-            // Check if the student actually exists in our local database.
-            $studentModel = new Student();
-            $student = $studentModel->findByStudentId($studentIdStr);
+            // Check if the student actually exists in our main users database.
+            $userModel = new User();
+            $student = $userModel->findByUserId($studentIdStr);
             
-            if (!$student) {
+            if (!$student || $student['user_type'] !== 'Student') {
                 return $this->error('Student ID not found in system', 404); 
+            }
+
+            // Check if the account is active
+            if ($student['status'] !== 'Active') {
+                return $this->error('Your student account is not active.', 403);
             }
 
             // ROSTER CHECK: Does this student actually have permission to take this quiz?
             $allowedClasses = $quizModel->getAllowedClasses($quiz['id']);
             if (!empty($allowedClasses)) {
-                $isAllowed = false;
-                $allowedClassNames = [];
-                foreach ($allowedClasses as $class) {
-                    $allowedClassNames[] = $class['name'] . ($class['section'] ? " ({$class['section']})" : "");
-                    if ($student['class_id'] == $class['id']) {
-                        $isAllowed = true;
-                        break;
-                    }
-                }
+                // We check if the student is enrolled in ANY of the allowed classes for this quiz.
+                $db = getDBConnection();
+                $placeholders = implode(',', array_fill(0, count($allowedClasses), '?'));
+                $allowedClassIds = array_map(function($c) { return $c['id']; }, $allowedClasses);
                 
-                if (!$isAllowed) {
-                    return $this->error('Access Denied: You are not in the allowed class for this quiz.', 403);
+                $sql = "SELECT COUNT(*) FROM class_students WHERE student_id = ? AND class_id IN ($placeholders)";
+                $stmt = $db->prepare($sql);
+                $stmt->execute(array_merge([$student['id']], $allowedClassIds));
+                $isEnrolled = $stmt->fetchColumn() > 0;
+                
+                if (!$isEnrolled) {
+                    return $this->error('Access Denied: You are not in an allowed class for this quiz.', 403);
                 }
             }
 
@@ -86,8 +92,8 @@ class StudentController extends BaseController {
             }
 
             return $this->success([
-                'student_name' => $student['name'],
-                'student_id' => $student['student_id'], 
+                'student_name' => $student['first_name'] . ' ' . $student['last_name'],
+                'student_id' => $student['user_id'], 
                 'quiz_title' => $quiz['title'],
                 'quiz_id' => $quiz['id'],
                 'quiz_status' => $quiz['status'],

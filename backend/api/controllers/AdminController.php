@@ -170,6 +170,19 @@ class AdminController extends BaseController {
     public function deleteUser($userId) {
         try {
             $userModel = new User();
+            $user = $userModel->find($userId);
+            
+            if (!$user) {
+                return $this->error('User not found', 404);
+            }
+
+            // Clean up the legacy students table if the user exists there.
+            if ($user['user_type'] === 'Student') {
+                $db = getDBConnection();
+                $stmt = $db->prepare("DELETE FROM students WHERE student_id = ?");
+                $stmt->execute([$user['user_id']]);
+            }
+
             $userModel->delete($userId);
             return $this->success(null, 'User deleted successfully');
         } catch (Exception $e) {
@@ -201,8 +214,13 @@ class AdminController extends BaseController {
         // Somali Phone Number Check (+252...).
         if (!empty($data['phone'])) {
             $phone = preg_replace('/\s+/', '', $data['phone']);
-            if (!preg_match('/^((\+252)|0|)(61|62|68|77)\d{7}$/', $phone)) {
-                return $this->error('Invalid Somali phone number format', 400);
+            if (!preg_match('/^(0)?(61|62|68|77)\d{7}$/', $phone)) {
+                return $this->error('Invalid phone number format', 400);
+            }
+            // Check for duplicate phone
+            $existingPhone = $userModel->findByPhone($data['phone']);
+            if ($existingPhone && (!$isUpdate || $existingPhone['id'] != $userId)) {
+                return $this->error('Phone number already exists', 409);
             }
         }
 

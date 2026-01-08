@@ -45,6 +45,13 @@ class User extends Model {
         $stmt->execute([$email]);
         return $stmt->fetch();
     }
+
+    // Finding someone by their phone number.
+    public function findByPhone($phone) {
+        $stmt = $this->db->prepare("SELECT * FROM {$this->table} WHERE phone = ?");
+        $stmt->execute([$phone]);
+        return $stmt->fetch();
+    }
     
     // Finding a student or teacher by their school ID (like STU-101).
     public function findByUserId($userId) {
@@ -76,10 +83,11 @@ class User extends Model {
         return $this->update($id, $data);
     }
 
-    // I built this to auto-make usernames like 'tea_1001', 'tea_1002', etc.
+    // I built this to auto-make usernames like 'TCH-110', 'TCH-111', etc.
     // It's smarter than a random string because it's sequential.
     public function generateSequentialUsername($type = 'Teacher') {
-        $prefix = ($type === 'Teacher') ? 'tea_' : 'usr_';
+        $prefix = ($type === 'Teacher') ? 'TCH-' : 'usr_';
+        $startNumber = ($type === 'Teacher') ? 101 : 1001;
         
         // Sometimes collisions happen (if kids try to mess with the system), 
         // so I added a loop to keep trying until we find a free one.
@@ -93,7 +101,7 @@ class User extends Model {
             $lastUsername = $this->query($sql)->fetchColumn();
             
             if (!$lastUsername) {
-                $newUsername = $prefix . "1001"; // Starting point.
+                $newUsername = $prefix . $startNumber; // Starting point.
             } else {
                 $lastNumber = (int)substr($lastUsername, strlen($prefix));
                 $newUsername = $prefix . ($lastNumber + 1);

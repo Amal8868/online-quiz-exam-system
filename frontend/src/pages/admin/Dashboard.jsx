@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { adminAPI, authAPI } from '../../services/api';
 import { CalendarDaysIcon, ClockIcon } from '@heroicons/react/24/outline';
 
@@ -67,7 +66,7 @@ const AdminDashboard = () => {
                         <div className="relative">
                             <img
                                 src={user.profile_pic || (user.gender && user.gender.toLowerCase() === 'female'
-                                    ? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(user.username || user.name)}&top=hijab&clothing=blazerAndShirt`
+                                    ? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(user.username || user.name)}&top=hijab&clothing=blazerAndShirt&eyes=happy&mouth=smile`
                                     : `https://avatar.iran.liara.run/public/boy?username=${user.username || user.name}`)}
                                 alt="Profile"
                                 className="h-24 w-24 rounded-full border-4 border-white dark:border-gray-700 shadow-md object-cover"

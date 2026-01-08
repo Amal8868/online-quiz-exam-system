@@ -19,6 +19,17 @@ const Layout = ({ type = 'default' }) => {
   // This is a "Memory Trick" so if they leave and come back, we know where they were.
   const [persistedQuizId, setPersistedQuizId] = useState(localStorage.getItem('lastQuizId'));
 
+
+  // Listen for updates from other components (Dashboard, QuizManage) to keep sidebar in sync
+  useEffect(() => {
+    const handleQuizUpdate = () => {
+      setPersistedQuizId(localStorage.getItem('lastQuizId'));
+    };
+
+    window.addEventListener('quizInfoUpdated', handleQuizUpdate);
+    return () => window.removeEventListener('quizInfoUpdated', handleQuizUpdate);
+  }, []);
+
   // LOGOUT LOGIC: Clearing the browser's memory so someone else can't use our account.
   const handleLogout = async () => {
     try {
@@ -174,7 +185,7 @@ const Layout = ({ type = 'default' }) => {
                     to={quizId ? `/teacher/quiz/${quizId}` : "/teacher/manage"}
                     className={`flex items-center px-4 py-3 text-sm font-medium rounded-lg mx-2 ${location.pathname.startsWith('/teacher/quiz/') || location.pathname === '/teacher/manage' ? 'text-primary-600 dark:text-primary-400 bg-gray-100 dark:bg-gray-700' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                   >
-                    <PencilSquareIcon className="w-5 h-5 mr-3" />
+                    <PencilSquareIcon className="w-5 h-5 mr-3 flex-shrink-0" />
                     Manage Quiz
                   </Link>
                   <Link

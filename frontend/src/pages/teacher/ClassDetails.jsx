@@ -3,8 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeftIcon,
     UserIcon,
-    MagnifyingGlassIcon,
-    TrashIcon
+    MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import { teacherAPI } from '../../services/api';
 
@@ -69,7 +68,7 @@ const ClassDetails = () => {
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl overflow-hidden border border-gray-100 dark:border-gray-700 shadow-sm">
                 <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50">
-                    <h2 className="font-bold">Student Roster ({students.length})</h2>
+                    <h2 className="font-bold">Student List ({students.length})</h2>
                     <div className="relative w-64">
                         <MagnifyingGlassIcon className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input
@@ -88,8 +87,7 @@ const ClassDetails = () => {
                             <tr>
                                 <th className="px-6 py-4">Student Name</th>
                                 <th className="px-6 py-4">Student ID</th>
-                                <th className="px-6 py-4">Quizzes Taken</th>
-                                <th className="px-6 py-4 text-right">Actions</th>
+                                <th className="px-6 py-4 text-right">Quizzes Taken</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -106,21 +104,16 @@ const ClassDetails = () => {
                                     <td className="px-6 py-4 font-mono text-sm text-gray-500">
                                         {s.student_id}
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-6 py-4 text-right">
                                         <span className="px-2 py-0.5 bg-green-100 text-green-700 text-[10px] font-bold rounded-full">
                                             {s.quiz_count || 0} Attempts
                                         </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <button className="text-gray-400 hover:text-red-600 transition-colors">
-                                            <TrashIcon className="h-5 w-5" />
-                                        </button>
                                     </td>
                                 </tr>
                             ))}
                             {filteredStudents.length === 0 && (
                                 <tr>
-                                    <td colSpan="4" className="px-6 py-12 text-center text-gray-400 italic">
+                                    <td colSpan="3" className="px-6 py-12 text-center text-gray-400 italic">
                                         No students found in this class.
                                     </td>
                                 </tr>

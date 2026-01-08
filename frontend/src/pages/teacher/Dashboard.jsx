@@ -8,7 +8,6 @@ import {
     TrashIcon,
     EyeIcon,
     CalendarDaysIcon,
-    ClockIcon,
     UserCircleIcon,
     LockClosedIcon,
     ShieldCheckIcon,
@@ -131,7 +130,7 @@ const Dashboard = () => {
         }
 
         return () => clearInterval(timer);
-    }, []);
+    }, [fetchDashboardData, user.first_login]);
 
     // FORMATTING HELPERS: Making dates and times look pretty.
     const formatDate = (date) => {
@@ -245,7 +244,7 @@ const Dashboard = () => {
                         <div className="relative cursor-pointer" onClick={handleImageClick}>
                             <img
                                 src={user.profile_pic || (user.gender && user.gender.toLowerCase() === 'female'
-                                    ? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(user.username || user.name)}&top=hijab&clothing=blazerAndShirt`
+                                    ? `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(user.username || user.name)}&top=hijab&clothing=blazerAndShirt&eyes=happy&mouth=smile`
                                     : `https://avatar.iran.liara.run/public/boy?username=${user.username || user.name}`)}
                                 alt="Profile"
                                 className="h-24 w-24 rounded-full border-4 border-white dark:border-gray-700 shadow-md object-cover hover:opacity-90 transition-opacity"
@@ -270,7 +269,7 @@ const Dashboard = () => {
                                     {user.gender && user.gender.toLowerCase() === 'male' ? 'Mr. ' : user.gender && user.gender.toLowerCase() === 'female' ? 'Ms. ' : ''}{user.name || 'Teacher'}
                                 </h1>
                                 <div className="flex items-center justify-center md:justify-start gap-2 text-indigo-600 dark:text-indigo-200 font-medium">
-                                    <span className="px-3 py-1 bg-indigo-50 dark:bg-white/10 rounded-full text-xs font-bold uppercase tracking-wider backdrop-blur-sm border border-indigo-100 dark:border-white/10 text-indigo-700 dark:text-indigo-200">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
                                         Teacher Account
                                     </span>
                                 </div>
@@ -383,6 +382,11 @@ const Dashboard = () => {
                                     <div className="flex items-center space-x-2">
                                         <Link
                                             to={`/teacher/quiz/${quiz.id}`}
+                                            onClick={() => {
+                                                localStorage.setItem('lastQuizId', quiz.id);
+                                                localStorage.setItem('lastQuizTitle', quiz.title);
+                                                window.dispatchEvent(new Event('quizInfoUpdated'));
+                                            }}
                                             className="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:border-indigo-500 rounded-lg text-sm font-bold text-slate-700 dark:text-gray-300 transition-all"
                                         >
                                             <EyeIcon className="h-4 w-4 mr-2 text-indigo-500" />

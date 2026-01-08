@@ -44,8 +44,9 @@ class Quiz extends Model {
     // Gets the list of students specifically invited to this quiz.
     public function getAllowedStudents($quizId) {
         $stmt = $this->db->prepare("
-            SELECT s.* FROM students s
-            JOIN quiz_allowed_students qas ON s.id = qas.student_id
+            SELECT u.*, CONCAT(u.first_name, ' ', u.last_name) as name, u.user_id as student_id 
+            FROM users u
+            JOIN quiz_allowed_students qas ON u.id = qas.student_id
             WHERE qas.quiz_id = ?
         ");
         $stmt->execute([$quizId]);
@@ -55,9 +56,10 @@ class Quiz extends Model {
     // Shows who is currently taking the quiz and what their progress is.
     public function getActiveParticipants($quizId) {
          $stmt = $this->db->prepare("
-            SELECT s.*, r.status as result_status, r.score, r.submitted_at 
-            FROM students s
-            JOIN results r ON s.id = r.student_id
+            SELECT u.*, CONCAT(u.first_name, ' ', u.last_name) as name, u.user_id as student_id, 
+                   r.status as result_status, r.score, r.submitted_at 
+            FROM users u
+            JOIN results r ON u.id = r.student_id
             WHERE r.quiz_id = ?
         ");
         $stmt->execute([$quizId]);
@@ -68,7 +70,7 @@ class Quiz extends Model {
     public function getAllowedClasses($quizId) {
         $stmt = $this->db->prepare("
             SELECT c.*, 
-            (SELECT COUNT(*) FROM students WHERE class_id = c.id) as student_count
+            (SELECT COUNT(*) FROM class_students cs JOIN users u ON cs.student_id = u.id WHERE cs.class_id = c.id AND u.status = 'Active') as student_count
             FROM classes c
             JOIN quiz_classes qc ON c.id = qc.class_id
             WHERE qc.quiz_id = ?

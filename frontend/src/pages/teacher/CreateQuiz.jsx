@@ -180,7 +180,7 @@ const CreateQuiz = () => {
                 });
             }
 
-            navigate('/teacher');
+            navigate(`/teacher/quiz/${quizId}`);
         } catch (error) {
             console.error('Error creating quiz:', error);
             showAlert('Creation Error', 'Failed to create quiz. ' + (error.response?.data?.message || ''), 'error');

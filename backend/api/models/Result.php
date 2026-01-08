@@ -95,14 +95,14 @@ class Result extends Model {
         $questionIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
         // This giant query joins the results and students tables to get a full progress report.
-        $sql = "SELECT s.id as student_db_id, s.name, s.student_id as student_display_id,
+        $sql = "SELECT u.id as student_db_id, CONCAT(u.first_name, ' ', u.last_name) as name, u.user_id as student_display_id,
                 r.id as result_id, r.status, r.started_at, r.is_paused, r.is_blocked,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id) as answered_count,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 1) as correct_count,
                 (SELECT COUNT(*) FROM student_answers sa WHERE sa.result_id = r.id AND sa.is_correct = 0) as wrong_count,
                 (SELECT COALESCE(SUM(sa.time_taken_seconds), 0) FROM student_answers sa WHERE sa.result_id = r.id) as total_time_spent
                 FROM results r
-                JOIN students s ON r.student_id = s.id
+                JOIN users u ON r.student_id = u.id
                 WHERE r.quiz_id = ?
                 ORDER BY 
                     CASE WHEN r.status = 'submitted' THEN 1 ELSE 0 END DESC,
@@ -210,9 +210,9 @@ class Result extends Model {
 
     // Gets results for a quiz, usually for the teacher's "Results" tab.
     public function getByQuizId($quizId) {
-        $sql = "SELECT r.*, s.name as student_name, s.student_id as student_display_id 
+        $sql = "SELECT r.*, CONCAT(u.first_name, ' ', u.last_name) as student_name, u.user_id as student_display_id 
                 FROM results r 
-                JOIN students s ON r.student_id = s.id 
+                JOIN users u ON r.student_id = u.id 
                 WHERE r.quiz_id = ?
                 ORDER BY r.submitted_at DESC";
         $stmt = $this->db->prepare($sql);
@@ -231,15 +231,16 @@ class Result extends Model {
     // Fetches everyone's scores for a specific class and quiz.
     public function getResultsByClassAndQuiz($classId, $quizId) {
         $sql = "SELECT r.id, r.score, r.status, r.total_points, r.submitted_at, r.started_at, r.is_blocked,
-                       s.name as student_name, s.student_id as student_display_id,
+                       CONCAT(u.first_name, ' ', u.last_name) as student_name, u.user_id as student_display_id,
                        (SELECT COUNT(*) FROM student_answers sa 
                         JOIN questions q ON sa.question_id = q.id 
                         WHERE sa.result_id = r.id 
                         AND q.correct_answer = 'MANUAL_GRADING' 
                         AND sa.points_awarded = 0) as needs_grading
                 FROM results r 
-                JOIN students s ON r.student_id = s.id 
-                WHERE r.quiz_id = ? AND s.class_id = ?
+                JOIN users u ON r.student_id = u.id 
+                JOIN class_students cs ON u.id = cs.student_id
+                WHERE r.quiz_id = ? AND cs.class_id = ?
                 ORDER BY r.submitted_at DESC";
         
         $stmt = $this->db->prepare($sql);
@@ -253,7 +254,7 @@ class Result extends Model {
         $result = $this->find($resultId);
         if (!$result) return null;
 
-        $stmt = $this->db->prepare("SELECT name, student_id FROM students WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT CONCAT(first_name, ' ', last_name) as name, user_id as student_id FROM users WHERE id = ?");
         $stmt->execute([$result['student_id']]);
         $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
