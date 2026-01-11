@@ -65,3 +65,11 @@ QuickMaster is a comprehensive, modern web application designed for educational 
 - **Dark Mode Support**: Fully responsive design that respects system preferences.
 - **Premium Aesthetics**: Glassmorphism effects, smooth transitions, and vibrant color palettes.
 - **Mobile Friendly**: Optimized for tablets and smartphones.
+
+## 👥 Development Team
+
+1.  **Amal Abdulkadir Osman** (ID: C1220666)
+2.  **Fardowsa Mohamed Ali** (ID: C1220667)
+3.  **Yasir Ali Mohamud** (ID: C1220971)
+4.  **Sihaam Ali Ahmed** (ID: C1220661)
+
