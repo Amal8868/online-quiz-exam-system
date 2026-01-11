@@ -144,7 +144,12 @@ class TeacherController extends BaseController {
                 throw new Exception('Email and password are required', 400);
             }
             
-            $this->teacherModel->resetPassword($data['email'], $data['password']);
+            $user = $this->userModel->findByEmail($data['email']);
+            if (!$user) {
+                throw new Exception('User not found', 404);
+            }
+
+            $this->userModel->updateUser($user['id'], ['password' => $data['password']]);
             
             return [
                 'success' => true,

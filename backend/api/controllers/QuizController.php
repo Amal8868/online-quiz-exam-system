@@ -86,6 +86,7 @@ class QuizController extends BaseController {
                 'teacher_id' => $teacherId,
                 'title' => $data['title'],
                 'description' => $data['description'] ?? '',
+                'subject_id' => $data['subject_id'] ?? null,
                 'room_code' => $roomCode,
                 'duration_minutes' => $data['duration_minutes'] ?? 30,
                 'timer_type' => $data['timer_type'] ?? 'exam', 
@@ -173,7 +174,7 @@ class QuizController extends BaseController {
             if (!$quiz || $quiz['teacher_id'] != $teacherId) {
                 return $this->error('Quiz not found or unauthorized', 404);
             }
-            $allowed = ['title', 'description', 'duration_minutes', 'timer_type', 'status', 'room_code'];
+            $allowed = ['title', 'description', 'duration_minutes', 'timer_type', 'status', 'room_code', 'subject_id'];
             $updateData = [];
             foreach ($allowed as $field) {
                 if (isset($data[$field])) {

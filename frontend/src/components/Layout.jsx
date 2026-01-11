@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { HomeIcon, PlusCircleIcon, ChartBarIcon, AcademicCapIcon, PencilSquareIcon, ArrowLeftOnRectangleIcon, UserGroupIcon, UserPlusIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, PlusCircleIcon, ChartBarIcon, AcademicCapIcon, PencilSquareIcon, ArrowLeftOnRectangleIcon, UserGroupIcon, UserPlusIcon, BookOpenIcon } from '@heroicons/react/24/outline';
 import ThemeToggle from './ThemeToggle';
 import { teacherAPI, authAPI } from '../services/api';
 
@@ -105,7 +105,7 @@ const Layout = ({ type = 'default' }) => {
               return;
             }
           } catch (e) {
-            navigate('/teacher/login');
+            navigate('/login');
             return;
           }
         }
@@ -147,12 +147,12 @@ const Layout = ({ type = 'default' }) => {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
         {/* THE SIDEBAR: The vertical menu on the left. */}
-        <div className="fixed inset-y-0 left-0 w-64 bg-white dark:bg-gray-800 shadow-lg">
+        <div className="fixed inset-y-0 left-0 w-64 bg-white dark:bg-gray-800 shadow-lg print:hidden">
           <div className="flex flex-col h-full">
             {/* Logo area */}
             <div className="flex items-center justify-center h-16 px-4 border-b border-gray-200 dark:border-gray-700">
               <h1 className="text-xl font-bold text-primary-600 dark:text-primary-400">
-                {type === 'admin' ? 'QuizMaster Admin' : 'QuizMaster'}
+                QuizMaster
               </h1>
             </div>
 
@@ -232,11 +232,27 @@ const Layout = ({ type = 'default' }) => {
                   </Link>
 
                   <Link
+                    to="/admin/subjects"
+                    className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg mx-2 ${isActive('/admin/subjects') ? 'text-primary-600 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  >
+                    <BookOpenIcon className="w-5 h-5 mr-3" />
+                    Subjects
+                  </Link>
+
+                  <Link
                     to="/admin/classes"
                     className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg mx-2 ${isActive('/admin/classes') ? 'text-primary-600 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                   >
                     <AcademicCapIcon className="w-5 h-5 mr-3" />
                     Manage Classes
+                  </Link>
+
+                  <Link
+                    to="/admin/reports"
+                    className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg mx-2 ${isActive('/admin/reports') ? 'text-primary-600 dark:text-primary-400' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                  >
+                    <ChartBarIcon className="w-5 h-5 mr-3" />
+                    Reports
                   </Link>
                 </>
               )}
@@ -261,8 +277,8 @@ const Layout = ({ type = 'default' }) => {
         </div>
 
         {/* THE STAGE: This is where each page's unique content is rendered. */}
-        <div className="pl-64 flex flex-col min-h-screen">
-          <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 h-16 flex items-center justify-between px-8">
+        <div className="pl-64 flex flex-col min-h-screen print:pl-0">
+          <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 h-16 flex items-center justify-between px-8 print:hidden">
             <div className="flex items-center text-sm font-medium text-gray-500 dark:text-gray-400">
               {/* This is like the breadcrumbs of where we are. */}
             </div>

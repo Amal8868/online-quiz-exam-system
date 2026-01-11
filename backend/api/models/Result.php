@@ -310,4 +310,35 @@ class Result extends Model {
             throw $e; 
         }
     }
+
+    // --- ANALYTICS SECTION ---
+
+    // This is the "Brain" for the reports page. 
+    // It calculates the big numbers like average score and pass rate across the whole system.
+    public function getGlobalPerformanceStats() {
+        // 1. Average Score (percentage wise)
+        // We calculate (score / total_points) * 100 for each result, then average that.
+        // We filter out cases where total_points is 0 to avoid division by zero.
+        $avgSql = "SELECT AVG((score / total_points) * 100) 
+                   FROM {$this->table} 
+                   WHERE status = 'submitted' AND total_points > 0";
+        $avgScore = (float)$this->query($avgSql)->fetchColumn();
+
+        // 2. Pass Rate (Assuming 50% is passing)
+        // Count passed attempts / Total submitted attempts
+        $passSql = "SELECT COUNT(*) FROM {$this->table} 
+                    WHERE status = 'submitted' AND (score / total_points) >= 0.5 AND total_points > 0";
+        $passCount = (int)$this->query($passSql)->fetchColumn();
+
+        $totalSql = "SELECT COUNT(*) FROM {$this->table} WHERE status = 'submitted'";
+        $totalAttempts = (int)$this->query($totalSql)->fetchColumn();
+
+        $passRate = $totalAttempts > 0 ? ($passCount / $totalAttempts) * 100 : 0;
+
+        return [
+            'avg_score' => round($avgScore, 1),
+            'pass_rate' => round($passRate, 1),
+            'total_attempts' => $totalAttempts
+        ];
+    }
 }

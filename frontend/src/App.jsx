@@ -41,6 +41,8 @@ import NotFound from './pages/NotFound';
 import AdminDashboard from './pages/admin/Dashboard';
 import UserManagement from './pages/admin/UserManagement';
 import ClassManagement from './pages/admin/ClassManagement';
+import Reports from './pages/admin/Reports';
+import SubjectManagement from './pages/admin/SubjectManagement';
 
 function App() {
   return (
@@ -87,6 +89,8 @@ function App() {
               Only the big bosses (Admins) can see these pages. */}
           <Route path="/admin" element={<Layout type="admin" />}>
             <Route index element={<AdminDashboard />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="subjects" element={<SubjectManagement />} />
             <Route path="users" element={<UserManagement />} />
             <Route path="teachers" element={<UserManagement viewMode="list" userType="Teacher" />} />
             <Route path="teachers/register" element={<UserManagement viewMode="register" userType="Teacher" />} />

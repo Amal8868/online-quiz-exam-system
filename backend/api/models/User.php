@@ -158,4 +158,14 @@ class User extends Model {
     public function countAll() {
         return (int)$this->query("SELECT COUNT(*) FROM {$this->table}")->fetchColumn();
     }
+
+    public function countByType($type) {
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM {$this->table} WHERE user_type = ?");
+        $stmt->execute([$type]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    public function countActiveUsers() {
+        return (int)$this->query("SELECT COUNT(*) FROM {$this->table} WHERE status = 'Active'")->fetchColumn();
+    }
 }

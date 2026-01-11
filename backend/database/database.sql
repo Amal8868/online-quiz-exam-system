@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS quizzes (
     description TEXT,
     material_url VARCHAR(255) DEFAULT NULL,
     teacher_id INT NOT NULL, -- Refers to users.id
+    subject_id INT DEFAULT NULL, -- Refers to subjects.id
     room_code VARCHAR(10) UNIQUE NOT NULL, -- The special code students type to join.
     start_time DATETIME,
     end_time DATETIME,
@@ -85,7 +86,8 @@ CREATE TABLE IF NOT EXISTS quizzes (
     status ENUM('draft', 'active', 'started', 'finished') DEFAULT 'draft',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 6. Quiz Classes Mapping.
@@ -197,6 +199,27 @@ CREATE TABLE IF NOT EXISTS invalid_entries (
 -- The password is 'admin123'. Change it after your first login!
 INSERT INTO users (first_name, last_name, username, password, user_type, status, user_id)
 VALUES ('System', 'Admin', 'admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'Admin', 'Active', 'ADM-1');
+
+-- 15. Subjects Table (NEW).
+-- Stores the subjects like "Mathematics", "Science".
+CREATE TABLE IF NOT EXISTS subjects (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    code VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 16. Class Subjects Mapping (NEW).
+-- Links subjects to classes. A class (e.g., Grade 10 A) has many subjects.
+CREATE TABLE IF NOT EXISTS class_subjects (
+    class_id INT NOT NULL,
+    subject_id INT NOT NULL,
+    PRIMARY KEY (class_id, subject_id),
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Turning FK checks back on!
 SET FOREIGN_KEY_CHECKS = 1;

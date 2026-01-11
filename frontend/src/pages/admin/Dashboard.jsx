@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { adminAPI, authAPI } from '../../services/api';
+import { useNavigate } from 'react-router-dom';
 import { CalendarDaysIcon, ClockIcon } from '@heroicons/react/24/outline';
 
 const AdminDashboard = () => {
-    const [stats, setStats] = useState({ users: 0, classes: 0 });
+    const navigate = useNavigate();
+    const [stats, setStats] = useState({ students: 0, teachers: 0, classes: 0 });
 
     const [loading, setLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
@@ -115,30 +117,40 @@ const AdminDashboard = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* User Stats */}
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Users</h2>
+                {/* Student Stats */}
+                <div
+                    onClick={() => navigate('/admin/students')}
+                    className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
+                >
+                    <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2 group-hover:text-primary-600">Total Students</h2>
                     <p className="text-3xl font-bold text-primary-600">
-                        {loading ? '...' : stats.users}
+                        {loading ? '...' : stats.students}
                     </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total Registered Users</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Registered Students</p>
+                </div>
+
+                {/* Teacher Stats */}
+                <div
+                    onClick={() => navigate('/admin/teachers')}
+                    className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
+                >
+                    <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2 group-hover:text-blue-600">Total Teachers</h2>
+                    <p className="text-3xl font-bold text-blue-600">
+                        {loading ? '...' : stats.teachers}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Teaching Staff</p>
                 </div>
 
                 {/* Class Stats */}
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Classes</h2>
-                    <p className="text-3xl font-bold text-primary-600">
+                <div
+                    onClick={() => navigate('/admin/classes')}
+                    className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group"
+                >
+                    <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2 group-hover:text-purple-600">Total Classes</h2>
+                    <p className="text-3xl font-bold text-purple-600">
                         {loading ? '...' : stats.classes}
                     </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Total Classes</p>
-                </div>
-
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                    <h2 className="text-lg font-medium text-gray-900 dark:text-white mb-2">System Status</h2>
-                    <div className="flex items-center mt-2">
-                        <span className="h-3 w-3 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                        <span className="text-gray-700 dark:text-gray-300">Active</span>
-                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Active Classes</p>
                 </div>
             </div>
 

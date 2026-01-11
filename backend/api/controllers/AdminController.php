@@ -5,6 +5,7 @@
 require_once __DIR__ . '/BaseController.php';
 require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../models/ClassModel.php';
+require_once __DIR__ . '/../models/Quiz.php';
 
 class AdminController extends BaseController {
     
@@ -348,12 +349,55 @@ class AdminController extends BaseController {
             return [
                 'success' => true,
                 'data' => [
-                    'users' => $userModel->countAll(),
+                    'students' => $userModel->countByType('Student'),
+                    'teachers' => $userModel->countByType('Teacher'),
                     'classes' => $classModel->countAll()
                 ]
             ];
         } catch (Exception $e) {
             return $this->error($e->getMessage(), 500);
         }
+    }
+
+    // 9. "Reports Data" - Gets detailed statistics for the reports page.
+    public function getReports() {
+        try {
+            require_once __DIR__ . '/../models/Result.php';
+            $classModel = new ClassModel();
+            $userModel = new User();
+            $quizModel = new Quiz();
+            $resultModel = new Result();
+            
+            $stats = [
+                'overview' => [
+                    'students' => $userModel->countByType('Student'),
+                    'teachers' => $userModel->countByType('Teacher'),
+                    'classes' => $classModel->countAll(),
+                    'quizzes' => $quizModel->countAll(),
+                    'active_users' => $userModel->countActiveUsers()
+                ],
+                'subjects_overview' => $this->getSubjectsReport(),
+                'performance' => $resultModel->getGlobalPerformanceStats(),
+                'usage' => $classModel->getUsageStats()
+            ];
+
+            return $this->success($stats);
+        } catch (Exception $e) {
+            return $this->error($e->getMessage(), 500);
+        }
+    }
+
+    private function getSubjectsReport() {
+        $db = getDBConnection();
+        $sql = "SELECT s.id, s.name, s.code,
+                (SELECT COUNT(*) FROM class_subjects cs WHERE cs.subject_id = s.id) as classes_assigned,
+                (SELECT COUNT(*) FROM quizzes q WHERE q.subject_id = s.id) as quiz_count,
+                (SELECT ROUND(AVG((r.score / r.total_points) * 100), 1) 
+                 FROM results r 
+                 JOIN quizzes q ON r.quiz_id = q.id 
+                 WHERE q.subject_id = s.id AND r.status = 'submitted' AND r.total_points > 0) as avg_score
+                FROM subjects s
+                ORDER BY s.name ASC";
+        return $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
     }
 }

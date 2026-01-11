@@ -159,6 +159,9 @@ try {
         if ($routePath === 'admin/stats' && $method === 'GET') {
             $response = $controller->getStats();
             
+        } elseif ($routePath === 'admin/reports' && $method === 'GET') {
+            $response = $controller->getReports();
+            
         } elseif ($routePath === 'admin/users' && $method === 'POST') {
             $data = array_merge($_POST, getJsonInput());
             $response = $controller->createUser($data, $_FILES);
@@ -194,6 +197,28 @@ try {
 
         } elseif (preg_match('/^admin\/classes\/(\d+)$/', $routePath, $matches) && $method === 'DELETE') {
             $response = $controller->deleteClass($matches[1]);
+
+        // SUBJECT MANAGEMENT ROUTES
+        } elseif ($routePath === 'admin/subjects' && $method === 'GET') {
+            require_once __DIR__ . '/controllers/SubjectController.php';
+            $controller = new SubjectController();
+            $response = $controller->getAllSubjects();
+
+        } elseif ($routePath === 'admin/subjects' && $method === 'POST') {
+            require_once __DIR__ . '/controllers/SubjectController.php';
+            $controller = new SubjectController();
+            $response = $controller->createSubject(getJsonInput());
+
+        } elseif (preg_match('/^admin\/subjects\/(\d+)$/', $routePath, $matches)) {
+            require_once __DIR__ . '/controllers/SubjectController.php';
+            $controller = new SubjectController();
+            if ($method === 'GET') {
+                $response = $controller->getSubject($matches[1]);
+            } elseif ($method === 'PUT') {
+                $response = $controller->updateSubject($matches[1], getJsonInput());
+            } elseif ($method === 'DELETE') {
+                $response = $controller->deleteSubject($matches[1]);
+            }
 
         } else {
             throw new Exception('Admin Route not found: ' . $routePath, 404);
@@ -315,6 +340,11 @@ try {
             require_once __DIR__ . '/controllers/QuizController.php';
             $controller = new QuizController();
             $response = $controller->getQuizzesByClass($teacherId, $matches[1]);
+
+        } elseif (preg_match('/^classes\/(\d+)\/subjects$/', $routePath, $matches) && $method === 'GET') {
+            require_once __DIR__ . '/controllers/SubjectController.php';
+            $controller = new SubjectController();
+            $response = $controller->getClassSubjects($matches[1]);
 
         } elseif ($routePath === 'students/check' && $method === 'GET') {
             require_once __DIR__ . '/controllers/StudentController.php';

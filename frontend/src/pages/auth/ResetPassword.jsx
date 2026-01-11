@@ -46,7 +46,7 @@ const ResetPassword = () => {
             });
 
             setTimeout(() => {
-                navigate('/teacher/login');
+                navigate('/login');
             }, 2000);
 
         } catch (err) {

@@ -277,4 +277,12 @@ class ClassModel extends Model {
     public function countAll() {
         return (int)$this->query("SELECT COUNT(*) FROM {$this->table}")->fetchColumn();
     }
+    public function getUsageStats() {
+        $sql = "SELECT c.id, c.name, c.section,
+                (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) as student_count,
+                (SELECT COUNT(*) FROM quiz_classes qc WHERE qc.class_id = c.id) as quiz_count
+                FROM {$this->table} c
+                ORDER BY student_count DESC, quiz_count DESC";
+        return $this->query($sql)->fetchAll();
+    }
 }

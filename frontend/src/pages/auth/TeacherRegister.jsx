@@ -127,7 +127,7 @@ const TeacherRegister = () => {
                     transition={{ delay: 0.2 }}
                 >
                     Or{' '}
-                    <Link to="/teacher/login" className="font-medium text-primary-600 hover:text-primary-500">
+                    <Link to="/login" className="font-medium text-primary-600 hover:text-primary-500">
                         sign in to your dashboard
                     </Link>
                 </motion.p>

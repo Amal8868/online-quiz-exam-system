@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrashIcon, DocumentPlusIcon } from '@heroicons/react/24/outline';
@@ -13,10 +13,14 @@ const CreateQuiz = () => {
         description: '',
         duration_minutes: 30,
         timer_type: 'exam', // 'exam' or 'question'
+        subject_id: null,
     });
     const [questions, setQuestions] = useState([]);
     const [classes, setClasses] = useState([]);
     const [selectedClasses, setSelectedClasses] = useState([]);
+    const [subjects, setSubjects] = useState([]);
+    const [isClassDropdownOpen, setIsClassDropdownOpen] = useState(false);
+    const dropdownRef = useRef(null);
 
     // Modal state
     const [modal, setModal] = useState({
@@ -46,6 +50,35 @@ const CreateQuiz = () => {
         };
         fetchClasses();
     }, []);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsClassDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        const fetchSubjects = async () => {
+            if (selectedClasses.length === 0) {
+                setSubjects([]);
+                return;
+            }
+            try {
+                // For now, we fetch subjects for the first selected class to keep it simple.
+                // In a more complex setup, we'd fetch common subjects for all selected classes.
+                const res = await teacherAPI.getClassSubjects(selectedClasses[0]);
+                setSubjects(res.data.data || []);
+            } catch (err) {
+                console.error('Error fetching subjects:', err);
+            }
+        };
+        fetchSubjects();
+    }, [selectedClasses]);
 
     const addQuestion = (type) => {
         const newQuestion = {
@@ -128,21 +161,53 @@ const CreateQuiz = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // --- FRONTEND VALIDATION ---
+
+        // 1. Basic Quiz Info
+        if (!quizData.title.trim()) {
+            return showAlert('Validation Error', 'Please enter a quiz title.', 'error');
+        }
         if (selectedClasses.length === 0) {
-            showAlert('Missing Information', 'Please select at least one class before publishing the quiz.', 'error');
-            return;
+            return showAlert('Validation Error', 'Please assign this quiz to at least one class.', 'error');
+        }
+        if (questions.length === 0) {
+            return showAlert('Validation Error', 'Please add at least one question to the quiz.', 'error');
         }
 
-        if (questions.length === 0) {
-            showAlert('Missing Information', 'Please add at least one question before publishing the quiz.', 'error');
-            return;
+        // 2. Question-Specific Validation
+        for (let i = 0; i < questions.length; i++) {
+            const q = questions[i];
+            const qNum = i + 1;
+
+            if (!q.question_text.trim()) {
+                return showAlert('Validation Error', `Question #${qNum} is empty. Please enter the question text.`, 'error');
+            }
+
+            if (q.question_type !== 'short_answer') {
+                const hasCorrect = q.options.some(o => o.is_correct);
+                if (!hasCorrect) {
+                    return showAlert('Validation Error', `Question #${qNum} ("${q.question_text.substring(0, 30)}...") missing a correct answer. Please select at least one correct option.`, 'error');
+                }
+            }
+
+            // For MCQ/TF/MSQ, ensure all option texts are filled
+            if (q.question_type === 'multiple_choice' || q.question_type === 'true_false' || q.question_type === 'multiple_selection') {
+                const hasEmptyOption = q.options.some(o => !o.option_text.trim());
+                if (hasEmptyOption) {
+                    return showAlert('Validation Error', `Question #${qNum} has one or more empty options. Please fill in all option fields.`, 'error');
+                }
+            }
         }
 
         setLoading(true);
 
         try {
             // 1. Create Quiz
-            const quizRes = await teacherAPI.createQuiz(quizData);
+            const quizRes = await teacherAPI.createQuiz({
+                ...quizData,
+                class_ids: selectedClasses
+            });
             const quizId = quizRes.data.data.id;
 
             // 2. Associate Classes
@@ -247,29 +312,78 @@ const CreateQuiz = () => {
 
                         <div className="col-span-2 sm:col-span-1">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Assign to Classes</label>
-                            <div className="flex flex-wrap gap-2 max-h-[120px] overflow-y-auto p-1">
-                                {classes.map(cls => (
-                                    <button
-                                        key={cls.id}
-                                        type="button"
-                                        onClick={() => {
-                                            if (selectedClasses.includes(cls.id)) {
-                                                setSelectedClasses(selectedClasses.filter(id => id !== cls.id));
-                                            } else {
-                                                setSelectedClasses([...selectedClasses, cls.id]);
-                                            }
-                                        }}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selectedClasses.includes(cls.id)
-                                            ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                                            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 hover:border-indigo-300'
-                                            }`}
-                                    >
-                                        {cls.name}
-                                    </button>
-                                ))}
+                            <div className="relative" ref={dropdownRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsClassDropdownOpen(!isClassDropdownOpen)}
+                                    className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-default focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm min-h-[40px]"
+                                >
+                                    <span className="block truncate text-gray-700 dark:text-gray-200 font-medium">
+                                        {selectedClasses.length === 0
+                                            ? 'Select Classes...'
+                                            : `${selectedClasses.length} Class${selectedClasses.length > 1 ? 'es' : ''} Selected`}
+                                    </span>
+                                    <span className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                                        <svg className={`h-5 w-5 text-gray-400 transition-transform ${isClassDropdownOpen ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                        </svg>
+                                    </span>
+                                </button>
+
+                                {isClassDropdownOpen && (
+                                    <div className="absolute z-[100] mt-1 w-full bg-white dark:bg-gray-800 shadow-2xl border border-gray-200 dark:border-gray-600 max-h-60 rounded-lg py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+                                        {!classes || classes.length === 0 ? (
+                                            <div className="text-gray-500 dark:text-gray-400 text-center py-4 px-4 italic">No classes found</div>
+                                        ) : (
+                                            classes.map((cls) => (
+                                                <div
+                                                    key={cls.id}
+                                                    onClick={() => {
+                                                        if (selectedClasses.includes(cls.id)) {
+                                                            setSelectedClasses(selectedClasses.filter(id => id !== cls.id));
+                                                        } else {
+                                                            setSelectedClasses([...selectedClasses, cls.id]);
+                                                        }
+                                                    }}
+                                                    className={`cursor-pointer select-none relative py-2.5 pl-3 pr-9 border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 ${selectedClasses.includes(cls.id) ? 'bg-indigo-50 dark:bg-indigo-900/40' : ''}`}
+                                                >
+                                                    <div className="flex items-center">
+                                                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${selectedClasses.includes(cls.id) ? 'bg-indigo-600 border-indigo-600' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-500'}`}>
+                                                            {selectedClasses.includes(cls.id) && (
+                                                                <svg className="h-3 w-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                                                    <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" />
+                                                                </svg>
+                                                            )}
+                                                        </div>
+                                                        <span className={`ml-3 block truncate ${selectedClasses.includes(cls.id) ? 'font-semibold text-indigo-600 dark:text-indigo-400' : 'font-normal text-gray-900 dark:text-gray-200'}`}>
+                                                            {cls.name}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                            {classes.length === 0 && (
-                                <p className="text-[10px] text-gray-400 italic">No classes found.</p>
+                            {/* Overlay to close dropdown when clicking outside */}
+                            {/* Removed fixed inset-0 z-0 overlay */}
+                            {/* Sub-hint for classes removed */}
+                        </div>
+
+                        <div className="col-span-2 sm:col-span-1">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Subject / Course</label>
+                            <select
+                                className="input mt-1"
+                                value={quizData.subject_id || ''}
+                                onChange={e => setQuizData({ ...quizData, subject_id: e.target.value })}
+                            >
+                                <option value="">Select a Subject</option>
+                                {subjects.map(sub => (
+                                    <option key={sub.id} value={sub.id}>{sub.name} ({sub.code})</option>
+                                ))}
+                            </select>
+                            {selectedClasses.length === 0 && (
+                                <p className="text-[10px] text-gray-400 mt-1">Select a class first to see subjects.</p>
                             )}
                         </div>
                     </div>

@@ -111,6 +111,7 @@ export const teacherAPI = {
   // Students
   checkStudentsExist: () => api.get('/students/check'),
   getClassStudents: (classId) => api.get(`/classes/${classId}/students`),
+  getClassSubjects: (classId) => api.get(`/classes/${classId}/subjects`),
 
   // Results & Grading
   getClassQuizResults: (classId, quizId) => api.get(`/teachers/results/${classId}/${quizId}`),
@@ -149,6 +150,14 @@ export const adminAPI = {
   updateClass: (id, data) => api.put(`/admin/classes/${id}`, data),
   deleteClass: (id) => api.delete(`/admin/classes/${id}`),
   getStats: () => api.get('/admin/stats'),
+  getReports: () => api.get('/admin/reports'),
+
+  // Subjects
+  getSubjects: () => api.get('/admin/subjects'),
+  getSubject: (id) => api.get(`/admin/subjects/${id}`),
+  createSubject: (data) => api.post('/admin/subjects', data),
+  updateSubject: (id, data) => api.put(`/admin/subjects/${id}`, data),
+  deleteSubject: (id) => api.delete(`/admin/subjects/${id}`),
 };
 
 export default api;

@@ -6,14 +6,15 @@ require_once __DIR__ . '/Model.php';
 class Quiz extends Model {
     protected $table = 'quizzes';
     protected $fillable = [
-        'title', 
-        'description', 
-        'teacher_id', // This links the quiz to the teacher who made it.
+        'title',
+        'description',
+        'teacher_id',
+        'subject_id', // This links the quiz to a subject.
         'room_code',  // The 6-digit code students use to join.
-        'start_time', 
-        'end_time', 
-        'duration_minutes', 
-        'timer_type', 
+        'start_time',
+        'end_time',
+        'duration_minutes',
+        'timer_type',
         'status' // 'draft', 'active', 'started', or 'finished'.
     ];
 
@@ -103,5 +104,9 @@ class Quiz extends Model {
         ");
         $stmt->execute([$classId]);
         return $stmt->fetchAll();
+    }
+
+    public function countAll() {
+        return (int)$this->query("SELECT COUNT(*) FROM {$this->table}")->fetchColumn();
     }
 }
