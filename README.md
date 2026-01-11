@@ -1,6 +1,6 @@
-# QuickMaster: Online Quiz & Exam System
+# QuizMaster: Online Quiz & Exam System
 
-QuickMaster is a comprehensive, modern web application designed for educational institutions to manage quizzes and exams efficiently. It provides a seamless experience for administrators, teachers, and students, featuring a robust backend and a premium, responsive frontend.
+QuizMaster is a comprehensive, modern web application designed for educational institutions to manage quizzes and exams efficiently. It provides a seamless experience for administrators, teachers, and students, featuring a robust backend and a premium, responsive frontend.
 
 ## 🚀 Key Features
 
