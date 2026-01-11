@@ -58,7 +58,7 @@ QuizMaster is a comprehensive, modern web application designed for educational i
    ```
 3. Start the development server:
    ```bash
-   npm run dev
+   npm start
    ```
 
 ## 🎨 UI/UX Features
